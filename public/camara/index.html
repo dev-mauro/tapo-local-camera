@@ -229,6 +229,37 @@
                 </div>
             </div>
 
+            <!-- Sección: Notificaciones (fuera del imaging-body para que esté siempre visible) -->
+            <div class="modal-section modal-notif-section" id="notif-section">
+                <h3 class="modal-section-title">Notificaciones</h3>
+                <div class="imaging-toggle-row">
+                    <div class="toggle-label">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                        <div>
+                            <span class="toggle-name">Alertas de movimiento</span>
+                            <span class="toggle-desc">Notificación + sonido al detectar actividad</span>
+                        </div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="toggle-notifications" checked>
+                        <span class="toggle-thumb"></span>
+                    </label>
+                </div>
+                <div class="imaging-toggle-row">
+                    <div class="toggle-label">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+                        <div>
+                            <span class="toggle-name">Sonido de alerta</span>
+                            <span class="toggle-desc">Emitir beep al recibir notificación</span>
+                        </div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="toggle-sound" checked>
+                        <span class="toggle-thumb"></span>
+                    </label>
+                </div>
+            </div>
+
             <!-- Error state -->
             <div class="modal-error" id="imaging-error" style="display:none;">
                 <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
@@ -236,6 +267,9 @@
             </div>
         </div>
     </div>
+
+    <!-- ============ TOAST NOTIFICATIONS ============ -->
+    <div class="toast-container" id="toast-container"></div>
 
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest"></script>

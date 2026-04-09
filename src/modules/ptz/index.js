@@ -1,5 +1,6 @@
 const { Cam } = require('onvif');
 const imaging = require('../imaging');
+const cameraEvents = require('../events');
 
 // Parse RTSP URL to extract camera credentials and IP
 // Example: rtsp://user:password@192.168.1.34:554/stream1
@@ -60,8 +61,9 @@ class PtzController {
                     this.profileToken = ptzProfile.$.token;
                     this.ready = true;
                     console.log(`[PTZ] Ready. Profile token: "${this.profileToken}"`);
-                    // Share the connected Cam instance with the imaging controller
+                    // Share the connected Cam instance with other modules
                     imaging.attachCam(this.cam);
+                    cameraEvents.attachCam(this.cam);
                 } else {
                     console.error('[PTZ] No PTZ-capable profile found on camera.');
                 }
