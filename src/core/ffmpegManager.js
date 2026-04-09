@@ -1,5 +1,9 @@
 const { spawn } = require('child_process');
-const ffmpegPath = require('ffmpeg-static');
+const os = require('os');
+
+const ffmpegPath = os.platform() === 'android'
+    ? '/data/data/com.termux/files/usr/bin/ffmpeg' // Ruta específica para Termux en Android
+    : require('ffmpeg-static'); // Asume que ffmpeg está en el PATH para otros sistemas operativos
 
 class FfmpegManager {
     constructor(rtspUrl) {
