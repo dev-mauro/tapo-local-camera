@@ -325,4 +325,47 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
     });
 
+    // --- PTZ D-Pad Controls ---
+    const ptzButtons = document.querySelectorAll('.ptz-btn');
+
+    const sendPtzMove = (direction) => {
+        if (controlWs.readyState === WebSocket.OPEN) {
+            controlWs.send(JSON.stringify({ type: 'ptz_move', direction, speed: 0.5 }));
+        }
+    };
+
+    const sendPtzStop = () => {
+        if (controlWs.readyState === WebSocket.OPEN) {
+            controlWs.send(JSON.stringify({ type: 'ptz_stop' }));
+        }
+    };
+
+    ptzButtons.forEach((btn) => {
+        const direction = btn.dataset.dir;
+
+        // Mouse events
+        btn.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            btn.classList.add('ptz-pressing');
+            sendPtzMove(direction);
+        });
+
+        // Touch events (mobile / tablet)
+        btn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            btn.classList.add('ptz-pressing');
+            sendPtzMove(direction);
+        }, { passive: false });
+    });
+
+    // Stop on any mouse/touch up — global so dragging outside still stops
+    const stopAllPtz = (e) => {
+        ptzButtons.forEach(btn => btn.classList.remove('ptz-pressing'));
+        sendPtzStop();
+    };
+
+    document.addEventListener('mouseup', stopAllPtz);
+    document.addEventListener('touchend', stopAllPtz);
+    document.addEventListener('touchcancel', stopAllPtz);
+
 });

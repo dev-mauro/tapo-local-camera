@@ -410,3 +410,105 @@ video::-webkit-media-controls {
     font-size: 0.85rem;
 }
 .user-item:last-child { border-bottom: none; }
+
+/* ============================================================
+   PTZ D-Pad Controls
+   ============================================================ */
+
+.ptz-panel {
+    position: absolute;
+    bottom: 110px; /* Sit above the custom-controls bar */
+    right: 24px;
+    z-index: 15;
+    background: rgba(15, 23, 42, 0.72);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    /* Always visible — no fade out, camera control must stay accessible */
+    opacity: 0.25;
+    transition: opacity 0.25s ease, box-shadow 0.25s ease;
+    user-select: none;
+}
+
+.ptz-panel:hover {
+    opacity: 1;
+    box-shadow: 0 8px 32px rgba(56, 189, 248, 0.15);
+}
+
+.ptz-label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #38bdf8;
+    opacity: 0.8;
+}
+
+.ptz-dpad {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+
+.ptz-row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.ptz-middle {
+    gap: 2px;
+}
+
+.ptz-btn {
+    width: 44px;
+    height: 44px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.06);
+    color: #e2e8f0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease, transform 0.1s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.ptz-btn:hover {
+    background: rgba(56, 189, 248, 0.15);
+    border-color: rgba(56, 189, 248, 0.4);
+    color: #38bdf8;
+}
+
+.ptz-btn:active,
+.ptz-btn.ptz-pressing {
+    background: rgba(56, 189, 248, 0.28);
+    border-color: #38bdf8;
+    transform: scale(0.93);
+    box-shadow: 0 0 12px rgba(56, 189, 248, 0.35);
+    color: #ffffff;
+}
+
+.ptz-center {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, 0.2);
+}
+

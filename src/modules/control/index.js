@@ -1,4 +1,6 @@
 const WebSocket = require('ws');
+const ptz = require('../ptz');
+const config = require('../../config');
 
 class ControlSocket {
     constructor() {
@@ -8,6 +10,9 @@ class ControlSocket {
     init() {
         const wss = new WebSocket.Server({ noServer: true });
         this.wss = wss;
+
+        // Initialize PTZ controller with camera credentials from config
+        ptz.init(config.RTSP_URL);
 
         wss.on('connection', (ws) => {
             const socketId = Math.random().toString(36).substr(2, 9);
@@ -26,6 +31,17 @@ class ControlSocket {
                     if (data.type === 'ping') {
                         // Ping pong para cálculo de latencia de red (Server Time)
                         ws.send(JSON.stringify({ type: 'pong', clientTime: data.clientTime, serverTime: Date.now() }));
+                    }
+
+                    // --- PTZ Commands ---
+                    if (data.type === 'ptz_move') {
+                        // data.direction: 'up' | 'down' | 'left' | 'right'
+                        // data.speed: optional 0.0-1.0, defaults to 0.5
+                        ptz.move(data.direction, data.speed || 0.5);
+                    }
+
+                    if (data.type === 'ptz_stop') {
+                        ptz.stop();
                     }
 
                 } catch (e) {
