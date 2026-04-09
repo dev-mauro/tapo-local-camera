@@ -5,6 +5,7 @@ const config = require('../config');
 const FfmpegManager = require('../core/ffmpegManager');
 const recorder = require('../modules/recorder');
 const controlSocket = require('../modules/control');
+const imaging = require('../modules/imaging');
 
 const app = express();
 const server = http.createServer(app);
@@ -68,6 +69,25 @@ const initServer = () => {
     // 3. API endpoint para que el frontend sepa cómo conectarse
     app.get('/api/strategy', (req, res) => {
         res.json({ strategy: config.STREAM_STRATEGY });
+    });
+
+    // 4. Imaging API
+    app.get('/api/imaging', async (req, res) => {
+        try {
+            const settings = await imaging.getSettings();
+            res.json({ ok: true, settings });
+        } catch (err) {
+            res.status(503).json({ ok: false, error: err.message });
+        }
+    });
+
+    app.post('/api/imaging', express.json(), async (req, res) => {
+        try {
+            await imaging.applySettings(req.body);
+            res.json({ ok: true });
+        } catch (err) {
+            res.status(500).json({ ok: false, error: err.message });
+        }
     });
 
     // 4. Iniciar FFmpeg

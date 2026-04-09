@@ -368,4 +368,154 @@ document.addEventListener("DOMContentLoaded", async () => {
     document.addEventListener('touchend', stopAllPtz);
     document.addEventListener('touchcancel', stopAllPtz);
 
+    // --- Imaging Settings Modal ---
+    const imagingModal   = document.getElementById('imaging-modal');
+    const imagingLoading = document.getElementById('imaging-loading');
+    const imagingBody    = document.getElementById('imaging-body');
+    const imagingError   = document.getElementById('imaging-error');
+    const imagingErrMsg  = document.getElementById('imaging-error-msg');
+    const imagingStatus  = document.getElementById('imaging-status');
+    const btnApply       = document.getElementById('btn-apply-imaging');
+    const btnOpenModal   = document.getElementById('btn-imaging-settings');
+    const btnCloseModal  = document.getElementById('imaging-modal-close');
+
+    // Slider refs
+    const sliders = {
+        brightness:      document.getElementById('slider-brightness'),
+        contrast:        document.getElementById('slider-contrast'),
+        colorSaturation: document.getElementById('slider-saturation'),
+        sharpness:       document.getElementById('slider-sharpness'),
+    };
+    const sliderValues = {
+        brightness:      document.getElementById('val-brightness'),
+        contrast:        document.getElementById('val-contrast'),
+        colorSaturation: document.getElementById('val-saturation'),
+        sharpness:       document.getElementById('val-sharpness'),
+    };
+
+    // IR cut mode state
+    let selectedIrCutFilter = 'AUTO';
+    const irModeBtns = document.querySelectorAll('.ir-mode-btn');
+
+    const setIrActive = (mode) => {
+        selectedIrCutFilter = mode;
+        irModeBtns.forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.mode === mode);
+        });
+    };
+
+    irModeBtns.forEach(btn => {
+        btn.addEventListener('click', () => setIrActive(btn.dataset.mode));
+    });
+
+    // Live-update slider value labels
+    Object.entries(sliders).forEach(([key, el]) => {
+        el.addEventListener('input', () => {
+            sliderValues[key].textContent = el.value;
+        });
+    });
+
+    // Populate modal with camera data
+    const loadImagingSettings = async () => {
+        imagingLoading.style.display = 'flex';
+        imagingBody.style.display    = 'none';
+        imagingError.style.display   = 'none';
+        imagingStatus.textContent    = '';
+        imagingStatus.className      = 'modal-status';
+
+        try {
+            const resp = await fetch('/api/imaging');
+            const json = await resp.json();
+
+            if (!json.ok) throw new Error(json.error || 'Error desconocido');
+
+            const s = json.settings;
+            console.log('[Imaging] Settings received:', s);
+
+            // Populate sliders — fall back to 50 if value is missing
+            const set = (key) => {
+                const v = s[key];
+                if (v !== undefined && v !== null) {
+                    sliders[key].value = Math.round(v);
+                    sliderValues[key].textContent = Math.round(v);
+                }
+            };
+            set('brightness');
+            set('contrast');
+            set('colorSaturation');
+            set('sharpness');
+
+            // IR Cut Filter
+            if (s.irCutFilter) {
+                setIrActive(s.irCutFilter);
+            } else {
+                setIrActive('AUTO');
+            }
+
+            imagingLoading.style.display = 'none';
+            imagingBody.style.display    = 'block';
+
+        } catch (err) {
+            console.error('[Imaging] Load error:', err);
+            imagingLoading.style.display = 'none';
+            imagingErrMsg.textContent    = err.message;
+            imagingError.style.display   = 'flex';
+        }
+    };
+
+    // Open / Close
+    const openModal = () => {
+        imagingModal.style.display = 'flex';
+        loadImagingSettings();
+    };
+    const closeModal = () => {
+        imagingModal.style.display = 'none';
+    };
+
+    btnOpenModal.addEventListener('click', openModal);
+    btnCloseModal.addEventListener('click', closeModal);
+    imagingModal.addEventListener('click', (e) => {
+        if (e.target === imagingModal) closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && imagingModal.style.display !== 'none') closeModal();
+    });
+
+    // Apply changes
+    btnApply.addEventListener('click', async () => {
+        btnApply.disabled = true;
+        imagingStatus.className = 'modal-status';
+        imagingStatus.textContent = 'Aplicando...';
+
+        const payload = {
+            brightness:      parseInt(sliders.brightness.value, 10),
+            contrast:        parseInt(sliders.contrast.value, 10),
+            colorSaturation: parseInt(sliders.colorSaturation.value, 10),
+            sharpness:       parseInt(sliders.sharpness.value, 10),
+            irCutFilter:     selectedIrCutFilter,
+        };
+
+        try {
+            const resp = await fetch('/api/imaging', {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body:    JSON.stringify(payload),
+            });
+            const json = await resp.json();
+
+            if (!json.ok) throw new Error(json.error || 'Error del servidor');
+
+            imagingStatus.className = 'modal-status success';
+            imagingStatus.textContent = '✓ Configuración guardada';
+            setTimeout(() => { imagingStatus.textContent = ''; }, 3000);
+
+        } catch (err) {
+            console.error('[Imaging] Apply error:', err);
+            imagingStatus.className = 'modal-status error';
+            imagingStatus.textContent = `✗ ${err.message}`;
+        } finally {
+            btnApply.disabled = false;
+        }
+    });
+
 });
