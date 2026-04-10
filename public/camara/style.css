@@ -287,19 +287,45 @@ video::-webkit-media-controls {
     align-items: center;
     gap: 8px;
     margin-left: 10px;
+    background: none;
+    border: none;
+    padding: 4px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.2s, opacity 0.2s;
 }
+.live-indicator:hover {
+    background-color: rgba(255,255,255,0.1);
+}
+.live-indicator:active {
+    transform: scale(0.95);
+}
+
 .recording-dot {
     width: 8px;
     height: 8px;
     background-color: var(--accent);
     border-radius: 50%;
     animation: pulse 2s infinite;
+    transition: background-color 0.3s ease;
 }
+
+/* Estado de Sincronización Desactivada */
+.sync-disabled .recording-dot {
+    background-color: #4b5563; /* Gris */
+    animation: none;
+    box-shadow: none;
+}
+.sync-disabled .live-text {
+    color: #64748b;
+}
+
 .live-text {
     font-size: 0.8rem;
     font-weight: 700;
     color: var(--text-muted);
     letter-spacing: 1px;
+    transition: color 0.3s ease;
 }
 @keyframes pulse {
     0% { opacity: 1; box-shadow: 0 0 0 0 rgba(226, 27, 60, 0.7); }

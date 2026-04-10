@@ -34,6 +34,19 @@ document.addEventListener("DOMContentLoaded", async () => {
                 el.innerText = name;
                 usersDropdown.appendChild(el);
             });
+        } else if (data.type === 'camera_event') {
+            // Handle motion notifications
+            const notifEnabled = document.getElementById('toggle-notifications').checked;
+            const soundEnabled = document.getElementById('toggle-sound').checked;
+
+            if (notifEnabled) {
+                const toastType = data.event === 'motion_start' ? 'motion' : 'clear';
+                showToast(data.label, new Date(data.timestamp).toLocaleTimeString(), toastType);
+                
+                if (soundEnabled && data.event === 'motion_start') {
+                    playNotificationSound();
+                }
+            }
         } else if (data.type === 'pong') {
             // (Round-Trip-Time / 2)
             networkPing = (Date.now() - data.clientTime) / 2;
@@ -49,6 +62,90 @@ document.addEventListener("DOMContentLoaded", async () => {
             badgeCustom.style.backgroundColor = '#ef4444';
         }
     };
+
+    // --- Notification & Toast Logic ---
+    const toastContainer = document.getElementById('toast-container');
+    
+    // Audio Context for beep sound (lazy init on first user interaction)
+    let audioCtx = null;
+    const playNotificationSound = () => {
+        try {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
+            osc.frequency.exponentialRampToValueAtTime(440, audioCtx.currentTime + 0.1); // A4
+
+            gain.gain.setValueAtTime(0, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0.2, audioCtx.currentTime + 0.05);
+            gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.3);
+
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.3);
+        } catch (e) {
+            console.warn("Audio playback failed", e);
+        }
+    };
+
+    const showToast = (title, subtitle, type = 'motion') => {
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type === 'motion' ? 'motion' : 'clear'}`;
+        
+        const icon = type === 'motion' ? 
+            '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>' :
+            '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>';
+
+        toast.innerHTML = `
+            <div class="toast-icon">${icon}</div>
+            <div class="toast-content">
+                <div class="toast-title">${title}</div>
+                <div class="toast-subtitle">${subtitle}</div>
+            </div>
+            <button class="toast-dismiss">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        `;
+
+        const dismiss = () => {
+            toast.classList.add('toast-out');
+            setTimeout(() => toast.remove(), 300);
+        };
+
+        toast.querySelector('.toast-dismiss').onclick = dismiss;
+        toastContainer.appendChild(toast);
+
+        // Auto-remove
+        setTimeout(dismiss, 6000);
+    };
+
+    // Load/Save notification settings
+    const toggleNotif = document.getElementById('toggle-notifications');
+    const toggleSnd = document.getElementById('toggle-sound');
+
+    const loadSettings = () => {
+        const settings = JSON.parse(localStorage.getItem('monitor_settings') || '{"notif":true, "sound":true}');
+        if (toggleNotif) toggleNotif.checked = settings.notif;
+        if (toggleSnd) toggleSnd.checked = settings.sound;
+    };
+
+    const saveSettings = () => {
+        localStorage.setItem('monitor_settings', JSON.stringify({
+            notif: toggleNotif.checked,
+            sound: toggleSnd.checked
+        }));
+    };
+
+    if (toggleNotif) toggleNotif.onchange = saveSettings;
+    if (toggleSnd) toggleSnd.onchange = saveSettings;
+    loadSettings();
+
 
     // 3. Emulador / Cálculo de Latencia (Actualizar cada 10s visualmente)
     let getCustomLatencyFn = () => 0; 
@@ -299,7 +396,46 @@ document.addEventListener("DOMContentLoaded", async () => {
     
     progressBarSlider.addEventListener('input', (e) => {
         video.currentTime = parseFloat(e.target.value);
+        // Desactivar auto-sync si el usuario retrocede intencionalmente
+        if (isLiveSyncEnabled) {
+            setLiveSync(false);
+        }
     });
+
+    // --- Auto-Sync Logic ---
+    let isLiveSyncEnabled = true;
+    const btnLiveSync = document.getElementById('btn-live-sync');
+    
+    const setLiveSync = (enabled) => {
+        isLiveSyncEnabled = enabled;
+        if (enabled) {
+            btnLiveSync.classList.remove('sync-disabled');
+            // Al activarlo, saltamos al vivo inmediatamente
+            if (video.buffered.length > 0) {
+                video.currentTime = video.buffered.end(video.buffered.length - 1);
+            }
+        } else {
+            btnLiveSync.classList.add('sync-disabled');
+        }
+    };
+
+    btnLiveSync.addEventListener('click', () => {
+        setLiveSync(!isLiveSyncEnabled);
+    });
+
+    // Intervalo de sincronización (cada 3 segundos)
+    setInterval(() => {
+        if (isLiveSyncEnabled && !video.paused && video.buffered.length > 0) {
+            const end = video.buffered.end(video.buffered.length - 1);
+            const drift = end - video.currentTime;
+            
+            // Si hay un desfase mayor a 1.5 segundos, forzamos el salto
+            if (drift > 1.5) {
+                console.log(`[Sync] Resincronizando... Desfase: ${drift.toFixed(2)}s`);
+                video.currentTime = end;
+            }
+        }
+    }, 3000);
 
     video.addEventListener('timeupdate', () => {
         if (video.buffered.length > 0) {
