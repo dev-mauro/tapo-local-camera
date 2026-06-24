@@ -5,6 +5,8 @@
   "main": "index.js",
   "scripts": {
     "start": "node src/index.js",
+    "start:pm2": "pm2 start src/index.js --name tapo-monitor",
+    "stop:pm2": "pm2 stop tapo-monitor",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
