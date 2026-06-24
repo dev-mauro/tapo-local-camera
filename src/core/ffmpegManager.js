@@ -57,9 +57,15 @@ class FfmpegManager {
         });
 
         this.process.on('close', (code) => {
-            console.log(`FFmpeg process exited with code ${code}`);
-            // Simple restart logic if it crashes
-            if (code !== 0 && code !== 255) {
+            // On Windows, negative FFmpeg exit codes are reported as unsigned 32-bit:
+            //   -1 → 4294967295 (generic error)
+            //   -2 → 4294967294 (AVERROR_EXIT: stream dropped or write error)
+            const signed = code > 2147483647 ? code - 4294967296 : code;
+            const isCleanExit = code === 0 || code === 255;
+
+            console.log(`FFmpeg process exited with code ${code}${signed !== code ? ` (${signed})` : ''}`);
+
+            if (!isCleanExit) {
                 console.log("Restarting FFmpeg in 5 seconds...");
                 setTimeout(() => this.start(), 5000);
             }
