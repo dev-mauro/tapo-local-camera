@@ -213,20 +213,19 @@ document.addEventListener("DOMContentLoaded", async () => {
     }, 10000);
 
     // ── Video stall watchdog ──────────────────────────────────────────────────
-    let lastBufferedEnd = -1;
+    // WebRTC no llena video.buffered, así que detectamos congelamiento mirando si
+    // currentTime deja de avanzar mientras el video no está pausado por el usuario.
+    let lastTime = -1;
     let stallSeconds = 0;
     setInterval(() => {
-        if (errorOverlay.style.display === 'none' || !errorOverlay.style.display) {
-            if (video.buffered.length > 0) {
-                const currentEnd = video.buffered.end(video.buffered.length - 1);
-                if (currentEnd === lastBufferedEnd) stallSeconds++;
-                else { stallSeconds = 0; lastBufferedEnd = currentEnd; }
-            } else {
-                stallSeconds++;
-            }
-            if (stallSeconds >= 12) {
-                triggerFatalError("Origen inaccesible o apagado. Esperando recuperación...");
-            }
+        const overlayHidden = errorOverlay.style.display === 'none' || !errorOverlay.style.display;
+        if (!overlayHidden || video.paused) { stallSeconds = 0; lastTime = video.currentTime; return; }
+
+        if (video.currentTime === lastTime) stallSeconds++;
+        else { stallSeconds = 0; lastTime = video.currentTime; }
+
+        if (stallSeconds >= 12) {
+            triggerFatalError("Origen inaccesible o apagado. Esperando recuperación...");
         }
     }, 1000);
 
@@ -235,7 +234,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const statBitrate   = document.getElementById('stat-bitrate');
     const statFps       = document.getElementById('stat-fps');
     const statDropped   = document.getElementById('stat-dropped');
-    let streamStats = { speed: 0 };
+    let streamStats = { speed: 0, latency: 0 };
     let lastTotalFrames = 0;
     let lastFpsCheck    = Date.now();
 
@@ -258,16 +257,25 @@ document.addEventListener("DOMContentLoaded", async () => {
     };
     setInterval(updateStatsDisplay, 2000);
 
-    // ── mpegts.js player (with auto-reconnect) ────────────────────────────────
-    let currentPlayer    = null;
+    // ── WebRTC player vía go2rtc (con auto-reconnect) ─────────────────────────
+    // go2rtc entrega el stream por WebRTC: latencia sub-segundo, audio nativo y
+    // jitter buffer/reloj propios (calidad tipo VLC). No hay buffer hacia atrás:
+    // WebRTC es estrictamente en vivo. El histórico se ve desde "Grabaciones".
+    const GO2RTC_PORT   = window.GO2RTC_API_PORT || 1984;
+    const STREAM_NAME   = window.GO2RTC_STREAM   || 'camara';
+
+    let pc               = null;
+    let signalingWs      = null;
     let reconnectDelay   = 2000;
     let reconnectTimeout = null;
+    let statsTimer       = null;
+    let lastBytes        = 0;
+    let lastStatsTs      = 0;
 
     const destroyPlayer = () => {
-        if (currentPlayer) {
-            try { currentPlayer.destroy(); } catch (e) {}
-            currentPlayer = null;
-        }
+        if (statsTimer)  { clearInterval(statsTimer); statsTimer = null; }
+        if (signalingWs) { try { signalingWs.close(); } catch (e) {} signalingWs = null; }
+        if (pc)          { try { pc.close(); } catch (e) {} pc = null; }
     };
 
     const scheduleReconnect = () => {
@@ -278,40 +286,100 @@ document.addEventListener("DOMContentLoaded", async () => {
         }, reconnectDelay);
     };
 
+    const startStatsPolling = () => {
+        lastBytes = 0;
+        lastStatsTs = 0;
+        statsTimer = setInterval(async () => {
+            if (!pc) return;
+            try {
+                const report = await pc.getStats();
+                report.forEach((s) => {
+                    if (s.type === 'inbound-rtp' && s.kind === 'video') {
+                        if (lastStatsTs) {
+                            const dt = (s.timestamp - lastStatsTs) / 1000;
+                            if (dt > 0) streamStats.speed = (s.bytesReceived - lastBytes) / dt; // bytes/s
+                        }
+                        lastBytes   = s.bytesReceived;
+                        lastStatsTs = s.timestamp;
+                        if (s.jitterBufferEmittedCount > 0) {
+                            streamStats.latency = s.jitterBufferDelay / s.jitterBufferEmittedCount;
+                        }
+                    }
+                });
+            } catch (e) { /* getStats puede fallar durante el cierre */ }
+        }, 1000);
+    };
+
     const initPlayer = () => {
-        if (!mpegts.getFeatureList().mseLivePlayback) {
-            triggerFatalError("Tu navegador no soporta Media Source Extensions. Prueba con Chrome o Firefox.");
+        if (!window.RTCPeerConnection) {
+            triggerFatalError("Tu navegador no soporta WebRTC. Prueba con Chrome o Firefox.");
             return;
         }
         destroyPlayer();
 
-        const wsUrl = `${protocol}//${window.location.host}/ws`;
-        const player = mpegts.createPlayer({ type: 'mpegts', isLive: true, url: wsUrl });
-        currentPlayer = player;
+        pc = new RTCPeerConnection({ iceServers: [], bundlePolicy: 'max-bundle' });
+        pc.addTransceiver('video', { direction: 'recvonly' });
+        pc.addTransceiver('audio', { direction: 'recvonly' });
 
-        player.attachMediaElement(video);
-        player.load();
-        player.play().catch(() => {});
-
-        player.on(mpegts.Events.ERROR, (errorType, errorDetail) => {
-            console.warn(`[Stream] Error ${errorType}: ${errorDetail} — reconnecting in ${reconnectDelay}ms`);
-            destroyPlayer();
-            if (autoReconnect) scheduleReconnect();
-        });
-
-        player.on(mpegts.Events.STATISTICS_INFO, (info) => {
-            streamStats.speed = info.speed || 0;
-        });
-
-        getCustomLatencyFn = () => {
-            let buf = 0;
-            if (video.buffered.length > 0) {
-                buf = video.buffered.end(video.buffered.length - 1) - video.currentTime;
-            }
-            return Math.max(0, buf + (networkPing / 1000));
+        const remoteStream = new MediaStream();
+        video.srcObject = remoteStream;
+        pc.ontrack = (e) => {
+            remoteStream.addTrack(e.track);
+            video.play().catch(() => {});
         };
 
-        video.addEventListener('playing', () => { reconnectDelay = 2000; }, { once: true });
+        pc.onconnectionstatechange = () => {
+            if (!pc) return;
+            if (pc.connectionState === 'connected') {
+                reconnectDelay = 2000;
+            } else if (['failed', 'disconnected', 'closed'].includes(pc.connectionState)) {
+                destroyPlayer();
+                if (autoReconnect) scheduleReconnect();
+            }
+        };
+
+        const host = window.location.hostname;
+        const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const url = `${wsProto}//${host}:${GO2RTC_PORT}/api/ws?src=${encodeURIComponent(STREAM_NAME)}`;
+        signalingWs = new WebSocket(url);
+
+        signalingWs.onopen = async () => {
+            pc.onicecandidate = (ev) => {
+                if (ev.candidate && signalingWs?.readyState === WebSocket.OPEN) {
+                    signalingWs.send(JSON.stringify({ type: 'webrtc/candidate', value: ev.candidate.candidate }));
+                }
+            };
+            try {
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                signalingWs.send(JSON.stringify({ type: 'webrtc/offer', value: offer.sdp }));
+            } catch (e) {
+                console.warn('[WebRTC] Error creando oferta:', e);
+            }
+        };
+
+        signalingWs.onmessage = async (ev) => {
+            let msg;
+            try { msg = JSON.parse(ev.data); } catch (e) { return; }
+            if (!pc) return;
+            if (msg.type === 'webrtc/answer') {
+                try { await pc.setRemoteDescription({ type: 'answer', sdp: msg.value }); } catch (e) {}
+            } else if (msg.type === 'webrtc/candidate' && msg.value) {
+                try { await pc.addIceCandidate({ candidate: msg.value, sdpMid: '0' }); } catch (e) {}
+            }
+        };
+
+        signalingWs.onerror = () => {}; // se maneja en onclose
+        signalingWs.onclose = () => {
+            // Si la señalización se cierra antes de conectar, reintentar.
+            if (pc && pc.connectionState !== 'connected' && autoReconnect) {
+                destroyPlayer();
+                scheduleReconnect();
+            }
+        };
+
+        startStatsPolling();
+        getCustomLatencyFn = () => streamStats.latency || 0;
     };
 
     initPlayer();
@@ -420,6 +488,17 @@ document.addEventListener("DOMContentLoaded", async () => {
     // ── Progress bar & live-sync ──────────────────────────────────────────────
     const progressBarSlider = document.getElementById('progress-bar-slider');
     const timeCurrentLabel  = document.getElementById('time-current');
+
+    // WebRTC es estrictamente en vivo (sin buffer hacia atrás): ocultamos los
+    // controles tipo DVR. El histórico se consulta desde el modal "Grabaciones".
+    ['progress-bar-slider', 'btn-live-sync'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
+    if (timeCurrentLabel) {
+        timeCurrentLabel.innerText = 'EN VIVO';
+        timeCurrentLabel.classList.add('time-live');
+    }
 
     const formatTimeOffset = (seconds) => {
         if (seconds >= -2) return "Live";

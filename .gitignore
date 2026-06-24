@@ -1,4 +1,8 @@
 node_modules
 grabaciones
+recordings
 .env
 *.rar
+
+# Binario de go2rtc (se descarga con `npm run setup:go2rtc`)
+bin/
