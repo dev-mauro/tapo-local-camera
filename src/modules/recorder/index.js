@@ -12,6 +12,7 @@ class Recorder {
         ffmpegManager.addOutput([
             '-c:v', 'copy',
             '-c:a', 'aac',
+            '-af', 'volume=8dB',           // Igualar la ganancia de audio del stream en vivo
             '-ar', '44100',
             '-b:a', '128k',
             '-f', 'segment',

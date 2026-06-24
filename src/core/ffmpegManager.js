@@ -31,9 +31,15 @@ class FfmpegManager {
         }
 
         const args = [
-            '-rtsp_transport', 'tcp', // Better stability for RTSP
-            '-fflags', '+genpts', // Regenerar marcas de tiempo rotas
-            '-use_wallclock_as_timestamps', '1', // Ignorar el reloj interno de la cámara y usar el del PC
+            '-rtsp_transport', 'tcp',      // Better stability for RTSP
+            '-fflags', '+genpts',          // Regenerar PTS sólo si faltan
+            '-thread_queue_size', '512',   // Cola de entrada para absorber jitter de red
+            '-rtbufsize', '32M',           // Buffer RTP para picos sin descartar paquetes
+            // NOTA: se eliminó '-use_wallclock_as_timestamps 1' a propósito.
+            // Reescribir los PTS con la hora de llegada grababa el jitter de red
+            // dentro del timeline y causaba el stuttering visible.
+            // Tampoco usamos 'nobuffer'/'low_delay': reducen el colchón que
+            // absorbe el jitter y empeoran los microcortes.
             '-i', this.rtspUrl,
             ...this.outputs
         ];

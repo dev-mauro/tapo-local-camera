@@ -6,7 +6,8 @@ class WsStreamer {
         ffmpegManager.addOutput([
             '-c:v', 'copy',
             '-c:a', 'aac',
-            '-ar', '44100', // Resample de audio
+            '-af', 'volume=8dB', // El micro de la Tapo entrega un nivel muy bajo; subir ganancia
+            '-ar', '44100',      // Resample de audio
             '-b:a', '128k',
             '-f', 'mpegts',
             'pipe:1'
@@ -28,11 +29,15 @@ class WsStreamer {
     }
 
     onProcessStart(process) {
+        // Si un cliente lento acumula más de este buffer, descartamos el chunk para
+        // ese cliente en vez de dejar crecer la cola sin límite (protege la RAM).
+        const MAX_BUFFERED = 4 * 1024 * 1024; // 4 MB
+
         process.stdout.on('data', (data) => {
             // Broadcast the MPEG-TS chunks to all connected WebSocket clients
             this.wss.clients.forEach((client) => {
-                if (client.readyState === WebSocket.OPEN) {
-                    client.send(data);
+                if (client.readyState === WebSocket.OPEN && client.bufferedAmount < MAX_BUFFERED) {
+                    client.send(data, { binary: true });
                 }
             });
         });

@@ -286,6 +286,10 @@ document.addEventListener("DOMContentLoaded", async () => {
         destroyPlayer();
 
         const wsUrl = `${protocol}//${window.location.host}/ws`;
+        // Config por defecto a propósito: mantiene el stash buffer y el buffer
+        // hacia atrás (para poder retroceder minutos) y absorbe mejor el jitter.
+        // NO usar liveBufferLatencyChasing: recorta el back-buffer y genera
+        // microcortes al perseguir el live edge constantemente.
         const player = mpegts.createPlayer({ type: 'mpegts', isLive: true, url: wsUrl });
         currentPlayer = player;
 
@@ -444,22 +448,37 @@ document.addEventListener("DOMContentLoaded", async () => {
         isLiveSyncEnabled = enabled;
         btnLiveSync.classList.toggle('sync-disabled', !enabled);
         if (enabled && video.buffered.length > 0) {
-            video.currentTime = video.buffered.end(video.buffered.length - 1);
+            video.currentTime = video.buffered.end(video.buffered.length - 1) - TARGET_LATENCY;
+        } else {
+            video.playbackRate = 1.0; // Al retroceder, reproducir a velocidad normal
         }
     };
 
     btnLiveSync.addEventListener('click', () => setLiveSync(!isLiveSyncEnabled));
 
+    // Latencia objetivo: cuánto nos mantenemos detrás del live edge. Un colchón
+    // pequeño da estabilidad sin sentirse retrasado.
+    const TARGET_LATENCY = 2.0;
+
     setInterval(() => {
-        if (isLiveSyncEnabled && !video.paused && video.buffered.length > 0) {
-            const end   = video.buffered.end(video.buffered.length - 1);
-            const drift = end - video.currentTime;
-            if (drift > 1.5) {
-                console.log(`[Sync] Resincronizando... Desfase: ${drift.toFixed(2)}s`);
-                video.currentTime = end;
-            }
+        if (!isLiveSyncEnabled || video.paused || video.buffered.length === 0) return;
+
+        const end   = video.buffered.end(video.buffered.length - 1);
+        const drift = end - video.currentTime;
+
+        if (drift > 10) {
+            // Desfase enorme (tras un stall o reconexión): saltar una sola vez.
+            console.log(`[Sync] Salto de recuperación. Desfase: ${drift.toFixed(2)}s`);
+            video.currentTime = end - TARGET_LATENCY;
+            video.playbackRate = 1.0;
+        } else if (drift > TARGET_LATENCY + 1.0) {
+            video.playbackRate = 1.08; // Alcanzar el live edge suavemente (sin cortes)
+        } else if (drift > TARGET_LATENCY + 0.3) {
+            video.playbackRate = 1.03;
+        } else {
+            video.playbackRate = 1.0;  // Dentro del objetivo: velocidad normal
         }
-    }, 3000);
+    }, 1000);
 
     video.addEventListener('timeupdate', () => {
         if (video.buffered.length > 0) {
@@ -514,6 +533,41 @@ document.addEventListener("DOMContentLoaded", async () => {
     document.addEventListener('mouseup',     stopAllPtz);
     document.addEventListener('touchend',    stopAllPtz);
     document.addEventListener('touchcancel', stopAllPtz);
+
+    // ── PTZ con flechas del teclado ───────────────────────────────────────────
+    const KEY_TO_DIR = {
+        ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',
+    };
+    let activeKeyDir = null; // evita reenviar el move por el auto-repeat del teclado
+
+    const isTypingTarget = (el) =>
+        el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+
+    document.addEventListener('keydown', (e) => {
+        const dir = KEY_TO_DIR[e.key];
+        if (!dir || isTypingTarget(e.target)) return;
+        e.preventDefault();
+        if (activeKeyDir === dir) return; // ya en movimiento por esta tecla
+        activeKeyDir = dir;
+        const btn = document.querySelector(`.ptz-btn[data-dir="${dir}"]`);
+        if (btn) btn.classList.add('ptz-pressing');
+        sendPtzMove(dir);
+    });
+
+    document.addEventListener('keyup', (e) => {
+        const dir = KEY_TO_DIR[e.key];
+        if (!dir) return;
+        e.preventDefault();
+        if (activeKeyDir === dir) {
+            activeKeyDir = null;
+            stopAllPtz();
+        }
+    });
+
+    // Si la ventana pierde el foco con una tecla presionada, detener el PTZ.
+    window.addEventListener('blur', () => {
+        if (activeKeyDir) { activeKeyDir = null; stopAllPtz(); }
+    });
 
     // ── Imaging settings modal ────────────────────────────────────────────────
     const imagingModal   = document.getElementById('imaging-modal');
