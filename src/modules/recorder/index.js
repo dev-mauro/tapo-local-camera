@@ -1,27 +1,28 @@
 const fs = require('fs');
 const path = require('path');
+const { getRecordingsDir } = require('../../utils/paths');
 
 class Recorder {
     init(app, server, ffmpegManager) {
-        const recordsDir = path.join(__dirname, '../../../recordings');
-        if (!fs.existsSync(recordsDir)) {
-            fs.mkdirSync(recordsDir, { recursive: true });
+        const recordingsDir = getRecordingsDir();
+        if (!fs.existsSync(recordingsDir)) {
+            fs.mkdirSync(recordingsDir, { recursive: true });
         }
 
         ffmpegManager.addOutput([
             '-c:v', 'copy',
             '-c:a', 'aac',
-            '-ar', '44100',                // Resample de audio para alta compatibilidad
+            '-ar', '44100',
             '-b:a', '128k',
             '-f', 'segment',
-            '-segment_time', '3600',       // 3600 seconds = 1 hour
+            '-segment_time', '3600',       // 1 hour per file
             '-reset_timestamps', '1',
             '-map_metadata', '-1',         // Elimina el título fantasma "Session by TP Link"
             '-strftime', '1',
-            path.join(recordsDir, 'camara_%Y-%m-%d_%H-%M-%S.ts') // TS retiene la barra de progreso y no se corrompe NUNCA
+            path.join(recordingsDir, 'camara_%Y-%m-%d_%H-%M-%S.ts'),
         ]);
 
-        console.log("Recorder module initialized.");
+        console.log(`Recorder module initialized. Saving to: ${recordingsDir}`);
     }
 }
 
