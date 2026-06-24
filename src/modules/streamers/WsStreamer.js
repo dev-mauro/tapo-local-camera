@@ -6,6 +6,7 @@ class WsStreamer {
         ffmpegManager.addOutput([
             '-c:v', 'copy',
             '-c:a', 'aac',
+            '-af', 'volume=8dB', // El micro de la Tapo entrega un nivel muy bajo; subir ganancia
             '-ar', '44100', // Resample de audio
             '-b:a', '128k',
             '-f', 'mpegts',

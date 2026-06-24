@@ -515,6 +515,41 @@ document.addEventListener("DOMContentLoaded", async () => {
     document.addEventListener('touchend',    stopAllPtz);
     document.addEventListener('touchcancel', stopAllPtz);
 
+    // ── PTZ con flechas del teclado ───────────────────────────────────────────
+    const KEY_TO_DIR = {
+        ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',
+    };
+    let activeKeyDir = null; // evita reenviar el move por el auto-repeat del teclado
+
+    const isTypingTarget = (el) =>
+        el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+
+    document.addEventListener('keydown', (e) => {
+        const dir = KEY_TO_DIR[e.key];
+        if (!dir || isTypingTarget(e.target)) return;
+        e.preventDefault();
+        if (activeKeyDir === dir) return; // ya en movimiento por esta tecla
+        activeKeyDir = dir;
+        const btn = document.querySelector(`.ptz-btn[data-dir="${dir}"]`);
+        if (btn) btn.classList.add('ptz-pressing');
+        sendPtzMove(dir);
+    });
+
+    document.addEventListener('keyup', (e) => {
+        const dir = KEY_TO_DIR[e.key];
+        if (!dir) return;
+        e.preventDefault();
+        if (activeKeyDir === dir) {
+            activeKeyDir = null;
+            stopAllPtz();
+        }
+    });
+
+    // Si la ventana pierde el foco con una tecla presionada, detener el PTZ.
+    window.addEventListener('blur', () => {
+        if (activeKeyDir) { activeKeyDir = null; stopAllPtz(); }
+    });
+
     // ── Imaging settings modal ────────────────────────────────────────────────
     const imagingModal   = document.getElementById('imaging-modal');
     const imagingLoading = document.getElementById('imaging-loading');
