@@ -489,16 +489,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     const progressBarSlider = document.getElementById('progress-bar-slider');
     const timeCurrentLabel  = document.getElementById('time-current');
 
-    // WebRTC es estrictamente en vivo (sin buffer hacia atrás): ocultamos los
-    // controles tipo DVR. El histórico se consulta desde el modal "Grabaciones".
-    ['progress-bar-slider', 'btn-live-sync'].forEach((id) => {
-        const el = document.getElementById(id);
-        if (el) el.style.display = 'none';
-    });
-    if (timeCurrentLabel) {
-        timeCurrentLabel.innerText = 'EN VIVO';
-        timeCurrentLabel.classList.add('time-live');
-    }
+    // WebRTC es estrictamente en vivo (sin buffer hacia atrás): ocultamos la barra
+    // DVR completa y el botón de live-sync. El histórico se consulta desde el modal
+    // "Grabaciones".
+    const progressContainer = progressBarSlider ? progressBarSlider.closest('.progress-container') : null;
+    if (progressContainer) progressContainer.style.display = 'none';
+    const liveSyncBtn = document.getElementById('btn-live-sync');
+    if (liveSyncBtn) liveSyncBtn.style.display = 'none';
 
     const formatTimeOffset = (seconds) => {
         if (seconds >= -2) return "Live";

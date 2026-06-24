@@ -52,6 +52,7 @@ streams:
 
 api:
   listen: ":${this.apiPort}"
+  origin: "*"   # Permite la señalización WebRTC desde el origen de la app (otro puerto)
 
 rtsp:
   listen: ":${this.rtspPort}"
