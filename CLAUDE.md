@@ -65,7 +65,17 @@ Records to `recordings/camara_YYYY-MM-DD_HH-MM-SS.ts` in 1-hour segments using F
 
 ### Recordings API (`src/modules/recordings/index.js`)
 
-Express router mounted at `/api/recordings`. Serves files from the `recordings/` directory: `GET /` lists all `.ts` files, `GET /:filename` triggers a download, `DELETE /:filename` removes the file. Uses `path.basename` to prevent path traversal.
+Express router mounted at `/api/recordings`. Serves files from the recordings directory:
+- `GET /` — lists all `.ts` files (with size + ffprobe duration).
+- `GET /current` — newest `.ts` filename (the in-progress recording).
+- `GET /:filename/stream` — **VOD playback**. Browsers can't play raw MPEG-TS, so the `.ts` is remuxed to MP4 on demand (`-c copy -movflags +faststart -f mp4`, no transcode) into a `.cache/` subdir and served with `res.sendFile` (native Range/seek). Cached by `name+size+mtime` signature, so the growing current recording yields a fresh snapshot when it changes; old snapshots of the same file are pruned, plus a global LRU cap (`CACHE_MAX_FILES`). `dotfiles: 'allow'` is required because the cache dir starts with a dot.
+- `GET /:filename` — download. `DELETE /:filename` — removes the file and its cached MP4s.
+
+Uses `path.basename` to prevent path traversal. ffmpeg/ffprobe paths come from `ffmpeg-static`/`ffprobe-static`.
+
+### VOD page (`public/camara/vod/`)
+
+Separate route `/camara/vod/?file=<name>` (served statically). Native `<video controls>` pointing at the `/stream` endpoint, with a sidebar list of all recordings (click to switch, updates the URL via `history.replaceState`), download/delete actions, and a loading overlay shown until the first remux finishes. The main page has a header button (`#btn-current-vod`) that resolves `GET /current` and navigates to this page; each item in the Recordings modal also links here via a "play" action. WebRTC is live-only, so this is how past footage is reviewed.
 
 ### Frontend (`public/camara/`)
 
