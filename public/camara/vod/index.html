@@ -27,6 +27,23 @@
         }
         .vod-video-wrap video { width: 100%; height: 100%; display: block; }
 
+        /* La hoja principal oculta los controles nativos (style.css); aquí los
+           re-habilitamos para el reproductor del VOD. */
+        #vod-video::-webkit-media-controls,
+        #vod-video::-webkit-media-controls-enclosure,
+        #vod-video::-webkit-media-controls-panel {
+            display: flex !important;
+        }
+
+        .vod-speed {
+            display: flex; align-items: center; gap: 6px; font-size: 0.85rem; opacity: 0.9;
+        }
+        .vod-speed select {
+            background: rgba(255,255,255,0.08); color: inherit; border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 8px; padding: 6px 10px; font: inherit; cursor: pointer;
+        }
+        .vod-speed select option { background: #1e2230; color: #fff; }
+
         .vod-overlay {
             position: absolute; inset: 0; display: flex; flex-direction: column;
             align-items: center; justify-content: center; gap: 12px;
@@ -96,6 +113,17 @@
                 <div class="vod-meta">
                     <span class="vod-title" id="vod-title">—</span>
                     <div class="vod-actions">
+                        <label class="vod-speed">
+                            Velocidad
+                            <select id="vod-speed">
+                                <option value="1">x1</option>
+                                <option value="2">x2</option>
+                                <option value="4">x4</option>
+                                <option value="8">x8</option>
+                                <option value="16">x16</option>
+                                <option value="32">x32</option>
+                            </select>
+                        </label>
                         <a id="vod-download" class="header-icon-btn" title="Descargar" download href="#">
                             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         </a>

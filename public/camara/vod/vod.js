@@ -7,6 +7,39 @@ document.addEventListener('DOMContentLoaded', () => {
     const listEl       = document.getElementById('vod-list');
     const downloadLink = document.getElementById('vod-download');
     const deleteBtn    = document.getElementById('vod-delete');
+    const speedSelect  = document.getElementById('vod-speed');
+
+    // Velocidad de reproducción. Los navegadores rechazan playbackRate > 16
+    // (Chrome lanza excepción), así que para tasas mayores hacemos avance manual
+    // del currentTime sobre la reproducción nativa.
+    let playbackRate = 1;
+    let ffTimer = null;
+    const FF_INTERVAL = 0.25; // segundos
+
+    const clearManualFF = () => {
+        if (ffTimer) { clearInterval(ffTimer); ffTimer = null; }
+    };
+
+    const applyRate = () => {
+        clearManualFF();
+        try {
+            video.playbackRate = playbackRate;
+        } catch (e) {
+            // Tasa no soportada nativamente: 1x natural + avance manual del resto.
+            video.playbackRate = 1;
+            const extra = playbackRate - 1;
+            ffTimer = setInterval(() => {
+                if (!video.paused && !video.ended) video.currentTime += extra * FF_INTERVAL;
+            }, FF_INTERVAL * 1000);
+        }
+    };
+
+    speedSelect.addEventListener('change', () => {
+        playbackRate = parseFloat(speedSelect.value);
+        applyRate();
+    });
+    // playbackRate se resetea al cargar un nuevo src: lo reaplicamos.
+    video.addEventListener('loadedmetadata', applyRate);
 
     let currentFile = new URLSearchParams(location.search).get('file');
 
