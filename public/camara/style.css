@@ -970,5 +970,162 @@ video::-webkit-media-controls {
     50%       { transform: scale(1.2); }
 }
 
+/* Per-event toast icon colors */
+.toast-motion .toast-icon  { background: rgba(239, 68,  68,  0.15); color: #ef4444; }
+.toast-people .toast-icon  { background: rgba(59,  130, 246, 0.15); color: #3b82f6; }
+.toast-tamper .toast-icon  { background: rgba(220, 38,  38,  0.2);  color: #dc2626; }
+.toast-line   .toast-icon  { background: rgba(249, 115, 22,  0.15); color: #f97316; }
+.toast-field  .toast-icon  { background: rgba(249, 115, 22,  0.15); color: #f97316; }
+.toast-generic .toast-icon { background: rgba(107, 114, 128, 0.15); color: #9ca3af; }
+
+/* Tamper toast — red left border for emphasis */
+.toast-tamper {
+    border-left: 3px solid #dc2626;
+}
+.toast-tamper .toast-icon svg {
+    animation: pulseIcon 0.8s ease infinite;
+}
+
+/* ============================================================
+   Stats Overlay
+   ============================================================ */
+.stats-overlay {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(6px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    padding: 8px 12px;
+    pointer-events: none;
+}
+.stats-overlay span {
+    font-size: 0.7rem;
+    font-weight: 600;
+    font-family: 'Roboto Mono', monospace, sans-serif;
+    color: #94a3b8;
+    letter-spacing: 0.5px;
+}
+
+/* Active state for header icon buttons (stats toggle) */
+.header-icon-btn.active {
+    background: rgba(56, 189, 248, 0.15);
+    border-color: rgba(56, 189, 248, 0.5);
+    color: #38bdf8;
+}
+
+/* ============================================================
+   Recordings Modal
+   ============================================================ */
+.recordings-panel {
+    width: 560px;
+    max-height: 80vh;
+}
+
+.recordings-body {
+    padding: 8px 20px 20px;
+    overflow-y: auto;
+    max-height: 55vh;
+}
+
+.recordings-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.recording-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    transition: background 0.15s;
+}
+.recording-item:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.recording-info {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+.recording-name {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #e2e8f0;
+    font-family: 'Roboto Mono', monospace, sans-serif;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.recording-meta {
+    font-size: 0.72rem;
+    color: #64748b;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.rec-duration {
+    font-family: 'Roboto Mono', monospace, sans-serif;
+    color: #38bdf8;
+    font-weight: 600;
+}
+
+.recording-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.rec-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 7px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.06);
+    color: #94a3b8;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.rec-download:hover {
+    background: rgba(56, 189, 248, 0.15);
+    border-color: rgba(56, 189, 248, 0.4);
+    color: #38bdf8;
+}
+.rec-delete:hover {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: rgba(239, 68, 68, 0.4);
+    color: #ef4444;
+}
+
+.recordings-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 40px 20px;
+    color: #334155;
+}
+.recordings-empty p {
+    margin: 0;
+    font-size: 0.85rem;
+    color: #475569;
+}
+
 
 

@@ -1,122 +1,112 @@
 /**
  * ONVIF Events module — subscribes to camera events via Pull-Point
  * and broadcasts relevant alerts to connected WebSocket clients.
- *
- * Relevant topic: tns1:RuleEngine/CellMotionDetector/Motion
- * The event message contains a SimpleItem { Name:'IsMotion', Value:'true'|'false' }
  */
 class CameraEvents {
     constructor() {
         this.cam = null;
         this.ready = false;
-        /** Injected after init — used to broadcast to WS clients */
         this.broadcastFn = null;
-        /** Debounce: don't spam identical motion-start events */
-        this._lastMotionState = false;
-        this._motionDebounceTimer = null;
+
+        // Per-type debounce state
+        this._states = {
+            motion: { last: false, timer: null },
+            people: { last: false, timer: null },
+            tamper: { last: false, timer: null },
+            line:   { last: false, timer: null },
+            field:  { last: false, timer: null },
+        };
     }
 
-    /**
-     * Provide a broadcast callback (called with a JSON-serializable payload).
-     * @param {function} fn
-     */
     setBroadcast(fn) {
         this.broadcastFn = fn;
     }
 
-    /**
-     * Attach the connected ONVIF Cam instance and start listening.
-     * @param {import('onvif').Cam} cam
-     */
     attachCam(cam) {
         this.cam = cam;
         this.ready = true;
-
         console.log('[Events] Starting ONVIF Pull-Point subscription...');
 
-        // The library automatically manages pull-point subscription lifecycle
-        // as long as there is at least one 'event' listener on the cam instance.
-        cam.on('event', (message) => {
-            this._handleEvent(message);
-        });
+        cam.on('event', (message) => this._handleEvent(message));
 
         cam.on('eventsError', (err) => {
             const msg = err.message || String(err);
-            // 'socket hang up' is normal for long-polling when no events occur for a long time
+            // 'socket hang up' is normal for long-polling with no events
             if (msg.includes('socket hang up')) return;
             console.error('[Events] Pull-Point error:', msg);
         });
     }
 
-    /**
-     * Parse and dispatch an ONVIF notification message.
-     * @param {object} message  linerase'd NotificationMessage
-     */
     _handleEvent(message) {
         try {
             const topicRaw = message?.topic?._ || message?.topic || '';
             const topic = String(topicRaw);
+            const items = message?.message?.message?.data?.simpleItem;
+            const itemArr = Array.isArray(items) ? items : (items ? [items] : []);
 
-            // Motion detection
-            if (topic.includes('CellMotionDetector') || topic.includes('MotionDetector') || topic.includes('Motion')) {
-                const items = message?.message?.message?.data?.simpleItem;
-                // Can be a single object or an array
-                const itemArr = Array.isArray(items) ? items : (items ? [items] : []);
-
-                let isMotion = null;
+            const getBool = (key) => {
                 for (const item of itemArr) {
                     const name = item?.$?.Name || item?.Name || '';
                     const value = item?.$?.Value ?? item?.Value;
-                    if (name === 'IsMotion') {
-                        isMotion = String(value).toLowerCase() === 'true';
-                        break;
-                    }
+                    if (name === key) return String(value).toLowerCase() === 'true';
                 }
+                return null;
+            };
 
-                if (isMotion === null) {
-                    // Some cameras emit motion without IsMotion flag — treat presence as trigger
-                    isMotion = true;
-                }
-
-                this._dispatchMotion(isMotion, topic);
-                return;
+            if (topic.includes('CellMotionDetector') || topic.includes('MotionDetector') || topic.includes('Motion')) {
+                const val = getBool('IsMotion');
+                this._dispatch('motion', val !== null ? val : true, topic);
+            } else if (topic.includes('PeopleDetector') || topic.includes('People')) {
+                const val = getBool('IsPeople');
+                this._dispatch('people', val !== null ? val : true, topic);
+            } else if (topic.includes('TamperDetector') || topic.includes('Tamper')) {
+                const val = getBool('IsTamper');
+                this._dispatch('tamper', val !== null ? val : true, topic);
+            } else if (topic.includes('LineCrossing') || topic.includes('LineDetector')) {
+                const val = getBool('IsLineCrossing') ?? getBool('IsCrossing');
+                this._dispatch('line', val !== null ? val : true, topic);
+            } else if (topic.includes('FieldDetection') || topic.includes('FieldDetector')) {
+                const val = getBool('IsInside') ?? getBool('IsField');
+                this._dispatch('field', val !== null ? val : true, topic);
+            } else {
+                console.log(`[Events] Unhandled topic: ${topic}`);
             }
-
-            // Log unhandled topics for discovery
-            console.log(`[Events] Unhandled topic: ${topic}`);
-
         } catch (err) {
             console.error('[Events] Error parsing event message:', err.message);
         }
     }
 
-    /**
-     * Debounced dispatch of motion state changes.
-     */
-    _dispatchMotion(isMotion, topic) {
-        if (isMotion === this._lastMotionState) return; // Already in this state
-        this._lastMotionState = isMotion;
+    _dispatch(type, isActive, topic) {
+        const state = this._states[type];
+        if (isActive === state.last) return;
+        state.last = isActive;
 
-        if (isMotion) {
-            console.log('[Events] 🚨 Motion DETECTED');
+        const EVENT_DEFS = {
+            motion: { event: 'motion_start',    label: 'Movimiento detectado' },
+            people: { event: 'people_start',    label: 'Persona detectada'    },
+            tamper: { event: 'tamper_detected', label: 'Cámara manipulada'    },
+            line:   { event: 'line_crossing',   label: 'Cruce de línea'       },
+            field:  { event: 'field_detection', label: 'Intrusión en zona'    },
+        };
+
+        if (isActive) {
+            const def = EVENT_DEFS[type];
+            console.log(`[Events] 🚨 ${def.label}`);
             this._broadcast({
-                type: 'camera_event',
-                event: 'motion_start',
-                label: 'Movimiento detectado',
+                type:      'camera_event',
+                event:     def.event,
+                label:     def.label,
                 topic,
                 timestamp: Date.now(),
             });
         } else {
-            // User requested to remove cleared notifications as they are noisy/unreliable
-            console.log('[Events] ✅ Motion CLEARED (Silent)');
+            console.log(`[Events] ✅ ${type} CLEARED (Silent)`);
         }
 
-        // Auto-reset state after 30s silence (some cameras don't send motion_end)
-        clearTimeout(this._motionDebounceTimer);
-        if (isMotion) {
-            this._motionDebounceTimer = setTimeout(() => {
-                this._lastMotionState = false;
-            }, 30000);
+        // Auto-reset after 30s silence (some cameras don't send a cleared event)
+        clearTimeout(state.timer);
+        if (isActive) {
+            state.timer = setTimeout(() => { state.last = false; }, 30000);
         }
     }
 
