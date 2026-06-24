@@ -1,45 +1,11 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const video        = document.getElementById('vod-video');
-    const overlay      = document.getElementById('vod-overlay');
-    const overlayText  = document.getElementById('vod-overlay-text');
-    const overlayHint  = document.getElementById('vod-overlay-hint');
-    const titleEl      = document.getElementById('vod-title');
-    const listEl       = document.getElementById('vod-list');
-    const downloadLink = document.getElementById('vod-download');
-    const deleteBtn    = document.getElementById('vod-delete');
-    const speedSelect  = document.getElementById('vod-speed');
-
-    // Velocidad de reproducción. Los navegadores rechazan playbackRate > 16
-    // (Chrome lanza excepción), así que para tasas mayores hacemos avance manual
-    // del currentTime sobre la reproducción nativa.
-    let playbackRate = 1;
-    let ffTimer = null;
-    const FF_INTERVAL = 0.25; // segundos
-
-    const clearManualFF = () => {
-        if (ffTimer) { clearInterval(ffTimer); ffTimer = null; }
-    };
-
-    const applyRate = () => {
-        clearManualFF();
-        try {
-            video.playbackRate = playbackRate;
-        } catch (e) {
-            // Tasa no soportada nativamente: 1x natural + avance manual del resto.
-            video.playbackRate = 1;
-            const extra = playbackRate - 1;
-            ffTimer = setInterval(() => {
-                if (!video.paused && !video.ended) video.currentTime += extra * FF_INTERVAL;
-            }, FF_INTERVAL * 1000);
-        }
-    };
-
-    speedSelect.addEventListener('change', () => {
-        playbackRate = parseFloat(speedSelect.value);
-        applyRate();
-    });
-    // playbackRate se resetea al cargar un nuevo src: lo reaplicamos.
-    video.addEventListener('loadedmetadata', applyRate);
+    const video       = document.getElementById('vod-video');
+    const overlay     = document.getElementById('vod-overlay');
+    const overlayText = document.getElementById('vod-overlay-text');
+    const overlayHint = document.getElementById('vod-overlay-hint');
+    const titleEl     = document.getElementById('vod-title');
+    const listEl      = document.getElementById('vod-list');
+    const speedGroup  = document.getElementById('vod-speed');
 
     let currentFile = new URLSearchParams(location.search).get('file');
 
@@ -49,6 +15,40 @@ document.addEventListener('DOMContentLoaded', () => {
         return `${m[1]}  ${m[2].replace(/-/g, ':')}`;
     };
 
+    // ── Velocidad de reproducción ─────────────────────────────────────────────
+    // Los navegadores rechazan playbackRate > 16 (Chrome lanza excepción), así que
+    // para tasas mayores hacemos avance manual del currentTime sobre el 1x nativo.
+    let playbackRate = 1;
+    let ffTimer = null;
+    const FF_INTERVAL = 0.25; // segundos
+
+    const clearManualFF = () => {
+        if (ffTimer) { clearInterval(ffTimer); ffTimer = null; }
+    };
+    const applyRate = () => {
+        clearManualFF();
+        try {
+            video.playbackRate = playbackRate;
+        } catch (e) {
+            video.playbackRate = 1;
+            const extra = playbackRate - 1;
+            ffTimer = setInterval(() => {
+                if (!video.paused && !video.ended) video.currentTime += extra * FF_INTERVAL;
+            }, FF_INTERVAL * 1000);
+        }
+    };
+
+    speedGroup.querySelectorAll('.speed-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            playbackRate = parseFloat(btn.dataset.rate);
+            speedGroup.querySelectorAll('.speed-btn').forEach(b => b.classList.toggle('active', b === btn));
+            applyRate();
+        });
+    });
+    // playbackRate se resetea al cargar un nuevo src: lo reaplicamos.
+    video.addEventListener('loadedmetadata', applyRate);
+
+    // ── Reproductor ───────────────────────────────────────────────────────────
     const showOverlay = (text, hint = '') => {
         overlayText.textContent = text;
         overlayHint.textContent = hint;
@@ -70,10 +70,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         currentFile = file;
         titleEl.textContent = parseRecordingName(file);
-        downloadLink.href = `/api/recordings/${encodeURIComponent(file)}`;
-        downloadLink.setAttribute('download', file);
-
-        // Refleja la selección en la URL sin recargar.
         history.replaceState(null, '', `?file=${encodeURIComponent(file)}`);
         setActiveInList();
 
@@ -88,6 +84,32 @@ document.addEventListener('DOMContentLoaded', () => {
     video.addEventListener('error', () => {
         showOverlay('No se pudo cargar el video', 'El archivo puede no existir o estar dañado.');
     });
+
+    // ── Eliminar (con confirmación) ───────────────────────────────────────────
+    const deleteRecording = async (name) => {
+        if (!confirm(`¿Eliminar ${parseRecordingName(name)}?`)) return;
+        try {
+            const r = await fetch(`/api/recordings/${encodeURIComponent(name)}`, { method: 'DELETE' });
+            const j = await r.json();
+            if (!j.ok) throw new Error(j.error);
+
+            const wasCurrent = name === currentFile;
+            await loadList();
+            if (wasCurrent) {
+                video.removeAttribute('src');
+                video.load();
+                const next = listEl.querySelector('.vod-recording-item');
+                if (next) loadVideo(next.dataset.name);
+                else { currentFile = null; titleEl.textContent = '—'; showOverlay('Sin grabaciones', 'No quedan grabaciones.'); }
+            }
+        } catch (err) {
+            alert(`Error al eliminar: ${err.message}`);
+        }
+    };
+
+    // ── Lista lateral ─────────────────────────────────────────────────────────
+    const ICON_DL = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+    const ICON_DEL = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
 
     const loadList = async () => {
         try {
@@ -107,38 +129,25 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div>
                         <span class="recording-name">${parseRecordingName(rec.name)}</span>
                         <span class="recording-meta">${rec.duration ? rec.duration + ' · ' : ''}${rec.sizeFormatted}</span>
+                    </div>
+                    <div class="recording-actions">
+                        <a class="rec-btn rec-download" title="Descargar" href="/api/recordings/${encodeURIComponent(rec.name)}" download="${rec.name}">${ICON_DL}</a>
+                        <button class="rec-btn rec-delete" title="Eliminar">${ICON_DEL}</button>
                     </div>`;
                 item.addEventListener('click', () => loadVideo(rec.name));
+                // Las acciones no deben disparar la reproducción del ítem.
+                const dl = item.querySelector('.rec-download');
+                dl.addEventListener('click', (e) => e.stopPropagation());
+                const del = item.querySelector('.rec-delete');
+                del.addEventListener('click', (e) => { e.stopPropagation(); deleteRecording(rec.name); });
                 listEl.appendChild(item);
             });
-            // Si no había archivo en la URL, abrir el más reciente.
             if (!currentFile) currentFile = json.recordings[0].name;
             setActiveInList();
         } catch (err) {
             listEl.innerHTML = `<p style="opacity:.6;padding:8px 12px;">Error: ${err.message}</p>`;
         }
     };
-
-    deleteBtn.addEventListener('click', async () => {
-        if (!currentFile) return;
-        if (!confirm(`¿Eliminar ${parseRecordingName(currentFile)}?`)) return;
-        try {
-            const r = await fetch(`/api/recordings/${encodeURIComponent(currentFile)}`, { method: 'DELETE' });
-            const j = await r.json();
-            if (!j.ok) throw new Error(j.error);
-            const deleted = currentFile;
-            currentFile = null;
-            video.removeAttribute('src');
-            video.load();
-            await loadList();
-            // Cargar la siguiente disponible, si hay.
-            const next = listEl.querySelector('.vod-recording-item');
-            if (next) loadVideo(next.dataset.name);
-            else { titleEl.textContent = '—'; showOverlay('Sin grabaciones', 'No quedan grabaciones.'); }
-        } catch (err) {
-            alert(`Error al eliminar: ${err.message}`);
-        }
-    });
 
     (async () => {
         await loadList();

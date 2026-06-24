@@ -777,7 +777,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                             </span>
                         </div>
                         <div class="recording-actions">
-                            <a href="/camara/vod/?file=${encodeURIComponent(rec.name)}" class="rec-btn rec-play" title="Ver">
+                            <a href="/camara/vod/?file=${encodeURIComponent(rec.name)}" target="_blank" rel="noopener" class="rec-btn rec-play" title="Ver">
                                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                             </a>
                             <a href="/api/recordings/${encodeURIComponent(rec.name)}" download="${rec.name}" class="rec-btn rec-download" title="Descargar">
@@ -832,7 +832,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                     showToast('Sin grabaciones', 'Aún no hay una grabación disponible.', 'toast-generic');
                     return;
                 }
-                window.location.href = `/camara/vod/?file=${encodeURIComponent(json.current)}`;
+                window.open(`/camara/vod/?file=${encodeURIComponent(json.current)}`, '_blank', 'noopener');
             } catch (err) {
                 showToast('Error', err.message, 'toast-generic');
             }
