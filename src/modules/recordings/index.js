@@ -163,24 +163,29 @@ router.get('/days', (req, res) => {
 });
 
 // ── Listado de videos de un día ───────────────────────────────────────────────
-// También liviano: sin ffprobe, solo fs.stat. La duración se conoce al reproducir.
-router.get('/days/:day', (req, res) => {
+// Un ffprobe por archivo del día (acotado, no todo el histórico) para poder
+// mostrar el rango real inicio–fin de cada grabación.
+router.get('/days/:day', async (req, res) => {
     const dayDir = safeDayDir(req.params.day);
     if (!dayDir) return res.status(400).json({ ok: false, error: 'Invalid day' });
     if (!fs.existsSync(dayDir)) return res.status(404).json({ ok: false, error: 'Day not found' });
 
     try {
         const names = fs.readdirSync(dayDir).filter(f => FILE_RE.test(f));
-        const recordings = names.map((f) => {
-            const stat = fs.statSync(path.join(dayDir, f));
+        const recordings = await Promise.all(names.map(async (f) => {
+            const filePath = path.join(dayDir, f);
+            const stat = fs.statSync(filePath);
+            const durationSecs = await probeDuration(filePath);
             return {
                 name: f,
                 day: req.params.day,
                 size: stat.size,
                 sizeFormatted: formatSize(stat.size),
+                durationSecs,
+                duration: formatDuration(durationSecs),
                 createdAt: stat.birthtime.toISOString(),
             };
-        });
+        }));
         recordings.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
         res.json({ ok: true, recordings });
     } catch (err) {
@@ -221,16 +226,6 @@ router.get('/:day/:filename/stream', async (req, res) => {
     } catch (err) {
         if (!res.headersSent) res.status(500).json({ ok: false, error: err.message });
     }
-});
-
-// Metadata puntual de un video (duración vía ffprobe), pedida solo al abrir el reproductor.
-router.get('/:day/:filename/info', async (req, res) => {
-    const filePath = safeFilePath(req.params.day, req.params.filename);
-    if (!filePath) return res.status(400).json({ ok: false, error: 'Invalid filename' });
-    if (!fs.existsSync(filePath)) return res.status(404).json({ ok: false, error: 'File not found' });
-
-    const durationSecs = await probeDuration(filePath);
-    res.json({ ok: true, duration: formatDuration(durationSecs) });
 });
 
 router.get('/:day/:filename', (req, res) => {

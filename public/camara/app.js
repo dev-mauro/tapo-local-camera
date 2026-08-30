@@ -776,6 +776,22 @@ document.addEventListener("DOMContentLoaded", async () => {
     };
     const formatTimeLabel = (filename) => filename.replace('.ts', '').replace(/-/g, ':');
 
+    // Suma segundos a un "HH:MM:SS" y devuelve la hora resultante (mismo formato).
+    const addSecondsToTime = (hhmmss, deltaSecs) => {
+        const [h, m, s] = hhmmss.split(':').map(Number);
+        let total = h * 3600 + m * 60 + s + Math.round(deltaSecs || 0);
+        total = ((total % 86400) + 86400) % 86400;
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${pad(Math.floor(total / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`;
+    };
+
+    // "inicio - fin" a partir del nombre del archivo (hora de inicio) y su duración.
+    const formatRangeLabel = (rec) => {
+        const start = formatTimeLabel(rec.name);
+        if (!rec.durationSecs) return start;
+        return `${start} - ${addSecondsToTime(start, rec.durationSecs)}`;
+    };
+
     const setLoading = () => {
         recordingsLoading.style.display = 'flex';
         recordingsBody.style.display    = 'none';
@@ -843,8 +859,8 @@ document.addEventListener("DOMContentLoaded", async () => {
                 item.className = 'recording-item';
                 item.innerHTML = `
                     <div class="recording-info">
-                        <span class="recording-name">${formatTimeLabel(rec.name)}</span>
-                        <span class="recording-meta">${rec.sizeFormatted}</span>
+                        <span class="recording-name">${formatRangeLabel(rec)}</span>
+                        <span class="recording-meta">${rec.duration ? rec.duration + ' · ' : ''}${rec.sizeFormatted}</span>
                     </div>
                     <div class="recording-actions">
                         <a href="/camara/vod/?day=${encodeURIComponent(day)}&file=${encodeURIComponent(rec.name)}" target="_blank" rel="noopener" class="rec-btn rec-play" title="Ver">

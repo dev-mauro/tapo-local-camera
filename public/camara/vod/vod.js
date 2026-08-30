@@ -19,6 +19,26 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     const formatTimeLabel = (filename) => filename.replace('.ts', '').replace(/-/g, ':');
 
+    // Suma segundos a un "HH:MM:SS" y devuelve la hora resultante (mismo formato).
+    const addSecondsToTime = (hhmmss, deltaSecs) => {
+        const [h, m, s] = hhmmss.split(':').map(Number);
+        let total = h * 3600 + m * 60 + s + Math.round(deltaSecs || 0);
+        total = ((total % 86400) + 86400) % 86400;
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${pad(Math.floor(total / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`;
+    };
+
+    // "inicio - fin" a partir del nombre del archivo (hora de inicio) y su duración.
+    const formatRangeLabel = (rec) => {
+        const start = formatTimeLabel(rec.name);
+        if (!rec.durationSecs) return start;
+        return `${start} - ${addSecondsToTime(start, rec.durationSecs)}`;
+    };
+
+    // Grabaciones del día actualmente listado, indexadas por nombre de archivo,
+    // para poder armar el título "inicio - fin" al reproducir sin pedirlo de nuevo.
+    let dayRecordingsByName = {};
+
     // ── Velocidad de reproducción ─────────────────────────────────────────────
     // Los navegadores limitan video.playbackRate a 16x (Chrome lanza excepción
     // por encima de eso). Para 32x/64x no hay reproducción "real" posible con
@@ -115,7 +135,8 @@ document.addEventListener('DOMContentLoaded', () => {
         stopManualFF();
         currentDay = day;
         currentFile = file;
-        titleEl.textContent = `${formatDayLabel(day)}  ${formatTimeLabel(file)}`;
+        const rec = dayRecordingsByName[file];
+        titleEl.textContent = `${formatDayLabel(day)}  ${rec ? formatRangeLabel(rec) : formatTimeLabel(file)}`;
         history.replaceState(null, '', `?day=${encodeURIComponent(day)}&file=${encodeURIComponent(file)}`);
         setActiveInList();
 
@@ -197,18 +218,20 @@ document.addEventListener('DOMContentLoaded', () => {
             const json = await resp.json();
             if (!json.ok) throw new Error(json.error);
             listEl.innerHTML = '';
+            dayRecordingsByName = {};
             if (json.recordings.length === 0) {
                 listEl.innerHTML = '<p style="opacity:.6;padding:8px 12px;">Sin grabaciones este día.</p>';
                 return;
             }
             json.recordings.forEach((rec) => {
+                dayRecordingsByName[rec.name] = rec;
                 const item = document.createElement('div');
                 item.className = 'vod-recording-item';
                 item.dataset.name = rec.name;
                 item.innerHTML = `
                     <div>
-                        <span class="recording-name">${formatTimeLabel(rec.name)}</span>
-                        <span class="recording-meta">${rec.sizeFormatted}</span>
+                        <span class="recording-name">${formatRangeLabel(rec)}</span>
+                        <span class="recording-meta">${rec.duration ? rec.duration + ' · ' : ''}${rec.sizeFormatted}</span>
                     </div>
                     <div class="recording-actions">
                         <a class="rec-btn rec-download" title="Descargar" href="/api/recordings/${encodeURIComponent(day)}/${encodeURIComponent(rec.name)}" download>${ICON_DL}</a>
