@@ -163,34 +163,42 @@ router.get('/days', (req, res) => {
 });
 
 // ── Listado de videos de un día ───────────────────────────────────────────────
-// Un ffprobe por archivo del día (acotado, no todo el histórico) para poder
-// mostrar el rango real inicio–fin de cada grabación.
-router.get('/days/:day', async (req, res) => {
+// Liviano: solo fs.stat (ls), sin ffprobe. La duración de cada video se pide
+// aparte y de forma asíncrona (ver /:day/:filename/duration) para que la lista
+// aparezca al instante y no se sienta lenta.
+router.get('/days/:day', (req, res) => {
     const dayDir = safeDayDir(req.params.day);
     if (!dayDir) return res.status(400).json({ ok: false, error: 'Invalid day' });
     if (!fs.existsSync(dayDir)) return res.status(404).json({ ok: false, error: 'Day not found' });
 
     try {
         const names = fs.readdirSync(dayDir).filter(f => FILE_RE.test(f));
-        const recordings = await Promise.all(names.map(async (f) => {
-            const filePath = path.join(dayDir, f);
-            const stat = fs.statSync(filePath);
-            const durationSecs = await probeDuration(filePath);
+        const recordings = names.map((f) => {
+            const stat = fs.statSync(path.join(dayDir, f));
             return {
                 name: f,
                 day: req.params.day,
                 size: stat.size,
                 sizeFormatted: formatSize(stat.size),
-                durationSecs,
-                duration: formatDuration(durationSecs),
                 createdAt: stat.birthtime.toISOString(),
             };
-        }));
+        });
         recordings.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
         res.json({ ok: true, recordings });
     } catch (err) {
         res.status(500).json({ ok: false, error: err.message });
     }
+});
+
+// Duración de un video puntual (ffprobe), pedida en segundo plano por el cliente
+// una vez que la lista ya se muestra, para no bloquear el listado inicial.
+router.get('/:day/:filename/duration', async (req, res) => {
+    const filePath = safeFilePath(req.params.day, req.params.filename);
+    if (!filePath) return res.status(400).json({ ok: false, error: 'Invalid filename' });
+    if (!fs.existsSync(filePath)) return res.status(404).json({ ok: false, error: 'File not found' });
+
+    const durationSecs = await probeDuration(filePath);
+    res.json({ ok: true, durationSecs, duration: formatDuration(durationSecs) });
 });
 
 // Grabación en curso (la más reciente, buscada en el día más reciente con archivos).

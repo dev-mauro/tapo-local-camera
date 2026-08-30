@@ -1052,21 +1052,24 @@ video::-webkit-media-controls {
     font-size: 0.6rem;
     font-weight: 600;
     letter-spacing: 0.3px;
-    color: #fff;
-    background: rgba(0, 0, 0, 0.65);
+    color: rgba(255, 255, 255, 0.75);
+    background: rgba(0, 0, 0, 0.25);
     backdrop-filter: blur(6px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 6px;
     padding: 3px 7px;
+    transition: background 0.2s, color 0.2s, border-color 0.2s;
 }
 .system-overlay-item.status-bad {
-    color: #fecaca;
-    border-color: rgba(226, 27, 60, 0.5);
+    color: #fff;
+    background: rgba(220, 38, 38, 0.9);
+    border-color: rgba(254, 202, 202, 0.6);
     animation: pulse-error 2s infinite;
 }
 .system-overlay-item.status-low {
-    color: #fde68a;
-    border-color: rgba(234, 179, 8, 0.5);
+    color: #1c1917;
+    background: rgba(250, 204, 21, 0.9);
+    border-color: rgba(250, 204, 21, 0.6);
 }
 
 /* Header status badges */

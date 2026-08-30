@@ -39,6 +39,18 @@ document.addEventListener('DOMContentLoaded', () => {
     // para poder armar el título "inicio - fin" al reproducir sin pedirlo de nuevo.
     let dayRecordingsByName = {};
 
+    // Pide la duración de un video en segundo plano (ffprobe del lado del server).
+    // No bloquea el listado: se llama después de pintar la lista.
+    const fetchDuration = async (day, name) => {
+        try {
+            const resp = await fetch(`/api/recordings/${encodeURIComponent(day)}/${encodeURIComponent(name)}/duration`);
+            const json = await resp.json();
+            return json.ok ? json : null;
+        } catch (e) {
+            return null;
+        }
+    };
+
     // ── Velocidad de reproducción ─────────────────────────────────────────────
     // Los navegadores limitan video.playbackRate a 16x (Chrome lanza excepción
     // por encima de eso). Para 32x/64x no hay reproducción "real" posible con
@@ -230,13 +242,27 @@ document.addEventListener('DOMContentLoaded', () => {
                 item.dataset.name = rec.name;
                 item.innerHTML = `
                     <div>
-                        <span class="recording-name">${formatRangeLabel(rec)}</span>
-                        <span class="recording-meta">${rec.duration ? rec.duration + ' · ' : ''}${rec.sizeFormatted}</span>
+                        <span class="recording-name">${formatTimeLabel(rec.name)}</span>
+                        <span class="recording-meta">${rec.sizeFormatted}</span>
                     </div>
                     <div class="recording-actions">
                         <a class="rec-btn rec-download" title="Descargar" href="/api/recordings/${encodeURIComponent(day)}/${encodeURIComponent(rec.name)}" download>${ICON_DL}</a>
                         <button class="rec-btn rec-delete" title="Eliminar">${ICON_DEL}</button>
                     </div>`;
+
+                // Lista al instante (ls); la duración llega en segundo plano y
+                // actualiza el texto (y el título del reproductor si aplica).
+                fetchDuration(day, rec.name).then((info) => {
+                    if (!info) return;
+                    rec.durationSecs = info.durationSecs;
+                    rec.duration = info.duration;
+                    item.querySelector('.recording-name').textContent = formatRangeLabel(rec);
+                    item.querySelector('.recording-meta').textContent = `${info.duration ? info.duration + ' · ' : ''}${rec.sizeFormatted}`;
+                    if (day === currentDay && rec.name === currentFile) {
+                        titleEl.textContent = `${formatDayLabel(day)}  ${formatRangeLabel(rec)}`;
+                    }
+                });
+
                 item.addEventListener('click', () => loadVideo(day, rec.name));
                 const dl = item.querySelector('.rec-download');
                 dl.addEventListener('click', (e) => e.stopPropagation());

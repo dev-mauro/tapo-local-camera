@@ -792,6 +792,18 @@ document.addEventListener("DOMContentLoaded", async () => {
         return `${start} - ${addSecondsToTime(start, rec.durationSecs)}`;
     };
 
+    // Pide la duración de un video en segundo plano (ffprobe del lado del server).
+    // No bloquea el listado: se llama después de pintar la lista.
+    const fetchDuration = async (day, name) => {
+        try {
+            const resp = await fetch(`/api/recordings/${encodeURIComponent(day)}/${encodeURIComponent(name)}/duration`);
+            const json = await resp.json();
+            return json.ok ? json : null;
+        } catch (e) {
+            return null;
+        }
+    };
+
     const setLoading = () => {
         recordingsLoading.style.display = 'flex';
         recordingsBody.style.display    = 'none';
@@ -859,8 +871,8 @@ document.addEventListener("DOMContentLoaded", async () => {
                 item.className = 'recording-item';
                 item.innerHTML = `
                     <div class="recording-info">
-                        <span class="recording-name">${formatRangeLabel(rec)}</span>
-                        <span class="recording-meta">${rec.duration ? rec.duration + ' · ' : ''}${rec.sizeFormatted}</span>
+                        <span class="recording-name">${formatTimeLabel(rec.name)}</span>
+                        <span class="recording-meta">${rec.sizeFormatted}</span>
                     </div>
                     <div class="recording-actions">
                         <a href="/camara/vod/?day=${encodeURIComponent(day)}&file=${encodeURIComponent(rec.name)}" target="_blank" rel="noopener" class="rec-btn rec-play" title="Ver">
@@ -873,6 +885,17 @@ document.addEventListener("DOMContentLoaded", async () => {
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
                         </button>
                     </div>`;
+
+                // La lista se pinta al instante con solo lo que ya teníamos (ls);
+                // la duración llega después y actualiza el texto in-place.
+                fetchDuration(day, rec.name).then((info) => {
+                    if (!info) return;
+                    rec.durationSecs = info.durationSecs;
+                    rec.duration = info.duration;
+                    item.querySelector('.recording-name').textContent = formatRangeLabel(rec);
+                    item.querySelector('.recording-meta').textContent = `${info.duration ? info.duration + ' · ' : ''}${rec.sizeFormatted}`;
+                });
+
                 item.querySelector('.rec-delete').addEventListener('click', async (e) => {
                     e.stopPropagation();
                     if (!confirm(`¿Eliminar la grabación de las ${formatTimeLabel(rec.name)}?`)) return;
