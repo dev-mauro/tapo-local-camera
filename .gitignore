@@ -1,6 +1,7 @@
 node_modules
 grabaciones
 recordings
+logs
 .env
 *.rar
 

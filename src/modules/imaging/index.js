@@ -1,3 +1,5 @@
+const logger = require('../../core/logger');
+
 /**
  * Imaging Controller — wraps the ONVIF imaging API.
  * Handles brightness, contrast, saturation, sharpness and IR cut filter.
@@ -17,7 +19,7 @@ class ImagingController {
     attachCam(cam) {
         this.cam = cam;
         this.ready = true;
-        console.log('[Imaging] Controller ready.');
+        logger.system('Imaging', 'Controller ready.');
     }
 
     /**
@@ -49,7 +51,7 @@ class ImagingController {
                 return reject(new Error(`Invalid irCutFilter value: ${patch.irCutFilter}`));
             }
 
-            console.log('[Imaging] Applying settings:', JSON.stringify(patch));
+            logger.app('Imaging', `Applying settings: ${JSON.stringify(patch)}`);
 
             this.cam.setImagingSettings(patch, (err) => {
                 if (err) return reject(err);

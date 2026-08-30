@@ -609,6 +609,24 @@ video::-webkit-media-controls {
     color: #e2e8f0;
 }
 
+.modal-back-btn {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    color: #94a3b8;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    transition: background 0.15s, color 0.15s;
+}
+.modal-back-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #e2e8f0;
+}
+
 .modal-close-btn {
     background: rgba(255, 255, 255, 0.06);
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -1010,6 +1028,60 @@ video::-webkit-media-controls {
     font-family: 'Roboto Mono', monospace, sans-serif;
     color: #94a3b8;
     letter-spacing: 0.5px;
+}
+
+/* System Status Overlay (recording / storage). Fuera de fullscreen esta misma
+   info ya se ve en los badges del header, así que se oculta; en fullscreen el
+   header desaparece y este overlay lo reemplaza. */
+.system-overlay {
+    display: none;
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 20;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+    pointer-events: none;
+}
+#video-container:fullscreen .system-overlay,
+#video-container:-webkit-full-screen .system-overlay {
+    display: flex;
+}
+.system-overlay-item {
+    font-size: 0.6rem;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(6px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 3px 7px;
+}
+.system-overlay-item.status-bad {
+    color: #fecaca;
+    border-color: rgba(226, 27, 60, 0.5);
+    animation: pulse-error 2s infinite;
+}
+.system-overlay-item.status-low {
+    color: #fde68a;
+    border-color: rgba(234, 179, 8, 0.5);
+}
+
+/* Header status badges */
+.badge.status-ok {
+    background-color: #1b3a2b;
+    color: #4ade80;
+}
+.badge.status-bad {
+    background-color: #3a1b1b;
+    color: #f87171;
+    animation: pulse-error 2s infinite;
+}
+.badge.status-low {
+    background-color: #3a331b;
+    color: #fbbf24;
 }
 
 /* Active state for header icon buttons (stats toggle) */

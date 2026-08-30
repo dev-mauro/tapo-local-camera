@@ -5,36 +5,79 @@ document.addEventListener('DOMContentLoaded', () => {
     const overlayHint = document.getElementById('vod-overlay-hint');
     const titleEl     = document.getElementById('vod-title');
     const listEl      = document.getElementById('vod-list');
+    const listTitleEl = document.getElementById('vod-list-title');
+    const btnBackDays = document.getElementById('vod-back-to-days');
     const speedGroup  = document.getElementById('vod-speed');
 
-    let currentFile = new URLSearchParams(location.search).get('file');
+    const params = new URLSearchParams(location.search);
+    let currentDay  = params.get('day');
+    let currentFile = params.get('file');
 
-    const parseRecordingName = (filename) => {
-        const m = filename.match(/camara_(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})\.ts/);
-        if (!m) return filename;
-        return `${m[1]}  ${m[2].replace(/-/g, ':')}`;
+    const formatDayLabel = (day) => {
+        const [y, m, d] = day.split('-');
+        return `${d}/${m}/${y}`;
     };
+    const formatTimeLabel = (filename) => filename.replace('.ts', '').replace(/-/g, ':');
 
     // ── Velocidad de reproducción ─────────────────────────────────────────────
-    // Los navegadores rechazan playbackRate > 16 (Chrome lanza excepción), así que
-    // para tasas mayores hacemos avance manual del currentTime sobre el 1x nativo.
+    // Los navegadores limitan video.playbackRate a 16x (Chrome lanza excepción
+    // por encima de eso). Para 32x/64x no hay reproducción "real" posible con
+    // <video> nativo, así que simulamos el avance encadenando seeks: en vez de
+    // reproducir a 1x y saltar cada cierto intervalo (lo que se ve entrecortado),
+    // mantenemos el video en pausa y calculamos el siguiente currentTime apenas
+    // termina el seek anterior ('seeked'), tan rápido como el navegador pueda
+    // decodificar. El resultado es un avance fluido, sin los saltos perceptibles
+    // de un timer de intervalo fijo.
+    const NATIVE_RATE_LIMIT = 16;
     let playbackRate = 1;
-    let ffTimer = null;
-    const FF_INTERVAL = 0.25; // segundos
+    let manualFFActive = false;
+    let lastStepAt = 0;
 
-    const clearManualFF = () => {
-        if (ffTimer) { clearInterval(ffTimer); ffTimer = null; }
+    const stepManualFF = () => {
+        if (!manualFFActive) return;
+        if (video.ended || video.duration - video.currentTime <= 0.05) {
+            stopManualFF();
+            return;
+        }
+        const now = performance.now();
+        const elapsed = lastStepAt ? (now - lastStepAt) / 1000 : 0.03;
+        lastStepAt = now;
+        const next = Math.min(video.currentTime + elapsed * playbackRate, video.duration);
+        video.currentTime = next;
     };
+
+    const onManualSeeked = () => stepManualFF();
+
+    const startManualFF = () => {
+        if (manualFFActive) return;
+        manualFFActive = true;
+        lastStepAt = 0;
+        video.pause();
+        video.addEventListener('seeked', onManualSeeked);
+        stepManualFF();
+    };
+
+    const stopManualFF = () => {
+        if (!manualFFActive) return;
+        manualFFActive = false;
+        video.removeEventListener('seeked', onManualSeeked);
+    };
+
+    // Mientras se simula 32x/64x el video se mantiene en pausa a propósito; si
+    // el usuario presiona el botón nativo de play, lo revertimos para no
+    // terminar con dos mecanismos de avance compitiendo entre sí.
+    video.addEventListener('play', () => {
+        if (manualFFActive) video.pause();
+    });
+
     const applyRate = () => {
-        clearManualFF();
-        try {
+        if (playbackRate > NATIVE_RATE_LIMIT) {
+            stopManualFF();
+            startManualFF();
+        } else {
+            stopManualFF();
             video.playbackRate = playbackRate;
-        } catch (e) {
-            video.playbackRate = 1;
-            const extra = playbackRate - 1;
-            ffTimer = setInterval(() => {
-                if (!video.paused && !video.ended) video.currentTime += extra * FF_INTERVAL;
-            }, FF_INTERVAL * 1000);
+            if (video.paused && !video.ended) video.play().catch(() => {});
         }
     };
 
@@ -62,19 +105,22 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    const loadVideo = (file) => {
-        if (!file) {
+    // Solo aquí se pide el video pesado (stream), al seleccionarlo explícitamente.
+    const loadVideo = (day, file) => {
+        if (!day || !file) {
             showOverlay('Sin selección', 'Elige una grabación de la lista.');
             titleEl.textContent = '—';
             return;
         }
+        stopManualFF();
+        currentDay = day;
         currentFile = file;
-        titleEl.textContent = parseRecordingName(file);
-        history.replaceState(null, '', `?file=${encodeURIComponent(file)}`);
+        titleEl.textContent = `${formatDayLabel(day)}  ${formatTimeLabel(file)}`;
+        history.replaceState(null, '', `?day=${encodeURIComponent(day)}&file=${encodeURIComponent(file)}`);
         setActiveInList();
 
         showOverlay('Preparando video…', 'La primera vez se convierte el archivo; puede tardar unos segundos.');
-        video.src = `/api/recordings/${encodeURIComponent(file)}/stream`;
+        video.src = `/api/recordings/${encodeURIComponent(day)}/${encodeURIComponent(file)}/stream`;
         video.load();
         video.play().catch(() => {});
     };
@@ -86,39 +132,73 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // ── Eliminar (con confirmación) ───────────────────────────────────────────
-    const deleteRecording = async (name) => {
-        if (!confirm(`¿Eliminar ${parseRecordingName(name)}?`)) return;
+    const deleteRecording = async (day, name) => {
+        if (!confirm(`¿Eliminar la grabación de las ${formatTimeLabel(name)}?`)) return;
         try {
-            const r = await fetch(`/api/recordings/${encodeURIComponent(name)}`, { method: 'DELETE' });
+            const r = await fetch(`/api/recordings/${encodeURIComponent(day)}/${encodeURIComponent(name)}`, { method: 'DELETE' });
             const j = await r.json();
             if (!j.ok) throw new Error(j.error);
 
-            const wasCurrent = name === currentFile;
-            await loadList();
+            const wasCurrent = day === currentDay && name === currentFile;
+            await loadDayFiles(day);
             if (wasCurrent) {
                 video.removeAttribute('src');
                 video.load();
                 const next = listEl.querySelector('.vod-recording-item');
-                if (next) loadVideo(next.dataset.name);
-                else { currentFile = null; titleEl.textContent = '—'; showOverlay('Sin grabaciones', 'No quedan grabaciones.'); }
+                if (next) loadVideo(day, next.dataset.name);
+                else { currentFile = null; titleEl.textContent = '—'; showOverlay('Sin grabaciones', 'No quedan grabaciones este día.'); }
             }
         } catch (err) {
             alert(`Error al eliminar: ${err.message}`);
         }
     };
 
-    // ── Lista lateral ─────────────────────────────────────────────────────────
+    // ── Nivel 1: días ─────────────────────────────────────────────────────────
     const ICON_DL = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
     const ICON_DEL = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
 
-    const loadList = async () => {
+    const loadDays = async () => {
+        currentDay = null;
+        btnBackDays.style.display = 'none';
+        listTitleEl.textContent = 'Días con grabaciones';
         try {
-            const resp = await fetch('/api/recordings');
+            const resp = await fetch('/api/recordings/days');
+            const json = await resp.json();
+            if (!json.ok) throw new Error(json.error);
+            listEl.innerHTML = '';
+            if (json.days.length === 0) {
+                listEl.innerHTML = '<p style="opacity:.6;padding:8px 12px;">No hay grabaciones.</p>';
+                showOverlay('Sin grabaciones', 'No hay ningún día con grabaciones.');
+                titleEl.textContent = '—';
+                return;
+            }
+            json.days.forEach((d) => {
+                const item = document.createElement('div');
+                item.className = 'vod-recording-item';
+                item.innerHTML = `
+                    <div>
+                        <span class="recording-name">${formatDayLabel(d.day)}</span>
+                        <span class="recording-meta">${d.count} video${d.count === 1 ? '' : 's'} · ${d.totalSizeFormatted}</span>
+                    </div>`;
+                item.addEventListener('click', () => loadDayFiles(d.day));
+                listEl.appendChild(item);
+            });
+        } catch (err) {
+            listEl.innerHTML = `<p style="opacity:.6;padding:8px 12px;">Error: ${err.message}</p>`;
+        }
+    };
+
+    // ── Nivel 2: videos de un día ─────────────────────────────────────────────
+    const loadDayFiles = async (day) => {
+        btnBackDays.style.display = 'flex';
+        listTitleEl.textContent = formatDayLabel(day);
+        try {
+            const resp = await fetch(`/api/recordings/days/${encodeURIComponent(day)}`);
             const json = await resp.json();
             if (!json.ok) throw new Error(json.error);
             listEl.innerHTML = '';
             if (json.recordings.length === 0) {
-                listEl.innerHTML = '<p style="opacity:.6;padding:8px 12px;">No hay grabaciones.</p>';
+                listEl.innerHTML = '<p style="opacity:.6;padding:8px 12px;">Sin grabaciones este día.</p>';
                 return;
             }
             json.recordings.forEach((rec) => {
@@ -127,30 +207,34 @@ document.addEventListener('DOMContentLoaded', () => {
                 item.dataset.name = rec.name;
                 item.innerHTML = `
                     <div>
-                        <span class="recording-name">${parseRecordingName(rec.name)}</span>
-                        <span class="recording-meta">${rec.duration ? rec.duration + ' · ' : ''}${rec.sizeFormatted}</span>
+                        <span class="recording-name">${formatTimeLabel(rec.name)}</span>
+                        <span class="recording-meta">${rec.sizeFormatted}</span>
                     </div>
                     <div class="recording-actions">
-                        <a class="rec-btn rec-download" title="Descargar" href="/api/recordings/${encodeURIComponent(rec.name)}" download="${rec.name}">${ICON_DL}</a>
+                        <a class="rec-btn rec-download" title="Descargar" href="/api/recordings/${encodeURIComponent(day)}/${encodeURIComponent(rec.name)}" download>${ICON_DL}</a>
                         <button class="rec-btn rec-delete" title="Eliminar">${ICON_DEL}</button>
                     </div>`;
-                item.addEventListener('click', () => loadVideo(rec.name));
-                // Las acciones no deben disparar la reproducción del ítem.
+                item.addEventListener('click', () => loadVideo(day, rec.name));
                 const dl = item.querySelector('.rec-download');
                 dl.addEventListener('click', (e) => e.stopPropagation());
                 const del = item.querySelector('.rec-delete');
-                del.addEventListener('click', (e) => { e.stopPropagation(); deleteRecording(rec.name); });
+                del.addEventListener('click', (e) => { e.stopPropagation(); deleteRecording(day, rec.name); });
                 listEl.appendChild(item);
             });
-            if (!currentFile) currentFile = json.recordings[0].name;
             setActiveInList();
         } catch (err) {
             listEl.innerHTML = `<p style="opacity:.6;padding:8px 12px;">Error: ${err.message}</p>`;
         }
     };
 
+    btnBackDays.addEventListener('click', loadDays);
+
     (async () => {
-        await loadList();
-        loadVideo(currentFile);
+        if (currentDay && currentFile) {
+            await loadDayFiles(currentDay);
+            loadVideo(currentDay, currentFile);
+        } else {
+            await loadDays();
+        }
     })();
 });

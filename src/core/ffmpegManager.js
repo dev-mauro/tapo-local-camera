@@ -1,5 +1,6 @@
 const { spawn } = require('child_process');
 const os = require('os');
+const logger = require('./logger');
 
 const ffmpegPath = os.platform() === 'android'
     ? '/data/data/com.termux/files/usr/bin/ffmpeg' // Ruta específica para Termux en Android
@@ -26,7 +27,7 @@ class FfmpegManager {
      */
     start() {
         if (this.outputs.length === 0) {
-            console.warn("No outputs defined for FFmpeg, aborting start.");
+            logger.systemError('FFmpeg', 'No outputs defined for FFmpeg, aborting start.');
             return;
         }
 
@@ -38,9 +39,10 @@ class FfmpegManager {
             ...this.outputs
         ];
 
-        console.log(`Starting FFmpeg with args: ${ffmpegPath} ${args.join(' ')}`);
+        logger.system('FFmpeg', `Starting FFmpeg with args: ${ffmpegPath} ${args.join(' ')}`);
 
         this.process = spawn(ffmpegPath, args);
+        this._manualStop = false;
 
         this.process.stderr.on('data', (data) => {
             const stderrMsg = data.toString();
@@ -63,15 +65,28 @@ class FfmpegManager {
             const signed = code > 2147483647 ? code - 4294967296 : code;
             const isCleanExit = code === 0 || code === 255;
 
-            console.log(`FFmpeg process exited with code ${code}${signed !== code ? ` (${signed})` : ''}`);
+            logger.system('FFmpeg', `FFmpeg process exited with code ${code}${signed !== code ? ` (${signed})` : ''}`);
+
+            if (this._manualStop) return;
 
             if (!isCleanExit) {
-                console.log("Restarting FFmpeg in 5 seconds...");
+                logger.system('FFmpeg', 'Restarting FFmpeg in 5 seconds...');
                 setTimeout(() => this.start(), 5000);
             }
         });
 
         return this.process;
+    }
+
+    /**
+     * Stops the current FFmpeg process without triggering the auto-restart logic.
+     * Used by watchers that need to force a clean restart of their own.
+     */
+    stop() {
+        if (!this.process) return;
+        this._manualStop = true;
+        this.process.kill('SIGKILL');
+        this.process = null;
     }
 }
 

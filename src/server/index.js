@@ -8,6 +8,9 @@ const recorder = require('../modules/recorder');
 const controlSocket = require('../modules/control');
 const imaging = require('../modules/imaging');
 const recordingsRouter = require('../modules/recordings');
+const recordingWatcher = require('../core/recordingWatcher');
+const storageWatcher = require('../core/storageWatcher');
+const logger = require('../core/logger');
 
 const app = express();
 const server = http.createServer(app);
@@ -42,15 +45,18 @@ const initServer = () => {
     // ONVIF (PTZ, imaging, eventos). Usa las credenciales de config.RTSP_URL (la cámara).
     controlSocket.init();
 
-    global.broadcastError = (msg) => {
+    const broadcastToClients = (payload) => {
         if (controlSocket.wss) {
-            controlSocket.wss.clients.forEach(client => {
-                if (client.readyState === 1) {
-                    client.send(JSON.stringify({ type: 'server_fatal_error', message: msg }));
-                }
-            });
+            controlSocket.broadcast(payload);
         }
     };
+
+    global.broadcastError = (msg) => {
+        broadcastToClients({ type: 'server_fatal_error', message: msg });
+    };
+
+    recordingWatcher.init(recorder.recordingsDir, broadcastToClients, ffmpegManager);
+    storageWatcher.init(recorder.recordingsDir, broadcastToClients);
 
     server.on('upgrade', (request, socket, head) => {
         const pathname = request.url;
@@ -92,8 +98,8 @@ const initServer = () => {
     setTimeout(() => ffmpegManager.start(), 2000);
 
     server.listen(config.PORT, () => {
-        console.log(`Server listening on port ${config.PORT}`);
-        console.log(`Open http://localhost:${config.PORT}/camara to view the stream.`);
+        logger.system('Server', `Server listening on port ${config.PORT}`);
+        logger.system('Server', `Open http://localhost:${config.PORT}/camara to view the stream.`);
     });
 };
 

@@ -2,6 +2,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const logger = require('./logger');
 
 /**
  * Gestiona el proceso de go2rtc, que es el ÚNICO consumidor del RTSP de la cámara.
@@ -70,25 +71,25 @@ log:
         this.writeConfig();
         const bin = this.resolveBin();
 
-        console.log(`Starting go2rtc: ${bin} -config ${this.configPath}`);
+        logger.system('Go2rtc', `Starting go2rtc: ${bin} -config ${this.configPath}`);
         this.process = spawn(bin, ['-config', this.configPath]);
 
         const log = (buf) => {
             const msg = buf.toString().trim();
-            if (msg) console.log(`GO2RTC: ${msg}`);
+            if (msg) logger.system('Go2rtc', msg);
         };
         this.process.stdout.on('data', log);
         this.process.stderr.on('data', log);
 
         this.process.on('error', (err) => {
-            console.error(`go2rtc no se pudo iniciar: ${err.message}`);
-            console.error('¿Falta el binario? Ejecuta: npm run setup:go2rtc');
+            logger.systemError('Go2rtc', `go2rtc no se pudo iniciar: ${err.message}`);
+            logger.systemError('Go2rtc', '¿Falta el binario? Ejecuta: npm run setup:go2rtc');
         });
 
         this.process.on('close', (code) => {
-            console.log(`go2rtc process exited with code ${code}`);
+            logger.system('Go2rtc', `go2rtc process exited with code ${code}`);
             if (!this.stopping) {
-                console.log('Restarting go2rtc in 5 seconds...');
+                logger.system('Go2rtc', 'Restarting go2rtc in 5 seconds...');
                 setTimeout(() => this.start(), 5000);
             }
         });

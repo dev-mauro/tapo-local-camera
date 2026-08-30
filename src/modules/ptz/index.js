@@ -1,6 +1,7 @@
 const { Cam } = require('onvif');
 const imaging = require('../imaging');
 const cameraEvents = require('../events');
+const logger = require('../../core/logger');
 
 // Parse RTSP URL to extract camera credentials and IP
 // Example: rtsp://user:password@192.168.1.34:554/stream1
@@ -13,7 +14,7 @@ function parseCameraUrl(rtspUrl) {
             password: decodeURIComponent(parsed.password),
         };
     } catch (e) {
-        console.error('[PTZ] Failed to parse RTSP_URL:', e.message);
+        logger.systemError('PTZ', `Failed to parse RTSP_URL: ${e.message}`);
         return null;
     }
 }
@@ -28,12 +29,12 @@ class PtzController {
     init(rtspUrl) {
         const credentials = parseCameraUrl(rtspUrl);
         if (!credentials) {
-            console.error('[PTZ] Cannot initialize: invalid RTSP_URL');
+            logger.systemError('PTZ', 'Cannot initialize: invalid RTSP_URL');
             return;
         }
 
         const { hostname, username, password } = credentials;
-        console.log(`[PTZ] Connecting to camera at ${hostname} via ONVIF (user: ${username})...`);
+        logger.system('PTZ', `Connecting to camera at ${hostname} via ONVIF (user: ${username})...`);
 
         // Tapo cameras typically use port 2020 for ONVIF
         this.cam = new Cam({
@@ -44,14 +45,14 @@ class PtzController {
             timeout: 10000,
         }, (err) => {
             if (err) {
-                console.error('[PTZ] ONVIF connection error:', err.message || err);
+                logger.systemError('PTZ', `ONVIF connection error: ${err.message || err}`);
                 return;
             }
 
             // Get the first PTZ-capable profile token
             this.cam.getProfiles((err, profiles) => {
                 if (err) {
-                    console.error('[PTZ] Failed to get profiles:', err.message || err);
+                    logger.systemError('PTZ', `Failed to get profiles: ${err.message || err}`);
                     return;
                 }
 
@@ -60,12 +61,12 @@ class PtzController {
                 if (ptzProfile) {
                     this.profileToken = ptzProfile.$.token;
                     this.ready = true;
-                    console.log(`[PTZ] Ready. Profile token: "${this.profileToken}"`);
+                    logger.system('PTZ', `Ready. Profile token: "${this.profileToken}"`);
                     // Share the connected Cam instance with other modules
                     imaging.attachCam(this.cam);
                     cameraEvents.attachCam(this.cam);
                 } else {
-                    console.error('[PTZ] No PTZ-capable profile found on camera.');
+                    logger.systemError('PTZ', 'No PTZ-capable profile found on camera.');
                 }
             });
         });
@@ -81,7 +82,7 @@ class PtzController {
      */
     move(direction, speed = 0.5) {
         if (!this.ready) {
-            console.warn('[PTZ] Not ready yet. Ignoring move command.');
+            logger.systemError('PTZ', 'Not ready yet. Ignoring move command.');
             return;
         }
 
@@ -98,11 +99,11 @@ class PtzController {
             case 'right': x =  s; break;
             case 'left':  x = -s; break;
             default:
-                console.warn('[PTZ] Unknown direction:', direction);
+                logger.appError('PTZ', `Unknown direction: ${direction}`);
                 return;
         }
 
-        console.log(`[PTZ] continuousMove → direction: ${direction}, x: ${x}, y: ${y}`);
+        logger.app('PTZ', `continuousMove → direction: ${direction}, x: ${x}, y: ${y}`);
 
         this.cam.continuousMove({
             profileToken: this.profileToken,
@@ -110,21 +111,21 @@ class PtzController {
             y,
             zoom: 0,
         }, (err) => {
-            if (err) console.error('[PTZ] continuousMove error:', err.message || err);
+            if (err) logger.systemError('PTZ', `continuousMove error: ${err.message || err}`);
         });
     }
 
     stop() {
         if (!this.ready) return;
 
-        console.log('[PTZ] Sending stop');
+        logger.app('PTZ', 'Sending stop');
 
         this.cam.stop({
             profileToken: this.profileToken,
             panTilt: true,
             zoom: false,
         }, (err) => {
-            if (err) console.error('[PTZ] stop error:', err.message || err);
+            if (err) logger.systemError('PTZ', `stop error: ${err.message || err}`);
         });
     }
 }

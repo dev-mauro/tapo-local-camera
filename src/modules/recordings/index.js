@@ -16,6 +16,9 @@ const router = Router();
 // Tope del caché de MP4 remuxeados (snapshots de la grabación actual se acumulan).
 const CACHE_MAX_FILES = 20;
 
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const FILE_RE = /^\d{2}-\d{2}-\d{2}\.ts$/;
+
 const formatSize = (bytes) => {
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -37,25 +40,34 @@ const probeDuration = (filePath) => new Promise((resolve) => {
     });
 });
 
-const safeFilePath = (filename) => {
-    const base = path.basename(filename);
-    if (!base.endsWith('.ts')) return null;
-    return path.join(recordingsDir, base);
+// Valida el nombre de una carpeta de día (YYYY-MM-DD) y evita path traversal.
+const safeDayDir = (day) => {
+    if (!DAY_RE.test(day)) return null;
+    return path.join(recordingsDir, day);
 };
+
+// Valida día + archivo (HH-MM-SS.ts) y devuelve la ruta absoluta.
+const safeFilePath = (day, filename) => {
+    const dayDir = safeDayDir(day);
+    if (!dayDir) return null;
+    const base = path.basename(filename);
+    if (!FILE_RE.test(base)) return null;
+    return path.join(dayDir, base);
+};
+
+// Nombre de caché único por día+archivo+tamaño+mtime.
+const cacheNameFor = (day, base, stat) =>
+    `${day}_${base.replace(/\.ts$/, '')}.${stat.size}.${Math.round(stat.mtimeMs)}.mp4`;
 
 // ── Caché de remux .ts → .mp4 ─────────────────────────────────────────────────
 const ensureCacheDir = () => {
     if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
 };
 
-// Nombre de caché determinístico por archivo + tamaño + mtime: si la grabación
-// actual crece, cambia la firma y se genera un MP4 nuevo (snapshot).
-const cacheNameFor = (base, stat) =>
-    `${base.replace(/\.ts$/, '')}.${stat.size}.${Math.round(stat.mtimeMs)}.mp4`;
-
-// Borra snapshots viejos del mismo archivo base (deja solo el vigente).
-const pruneOldSnapshots = (base, keepName) => {
-    const prefix = `${base.replace(/\.ts$/, '')}.`;
+// Borra snapshots viejos del mismo día+archivo (deja solo el vigente).
+const pruneOldSnapshots = (day, base, keepName) => {
+    if (!fs.existsSync(cacheDir)) return;
+    const prefix = `${day}_${base.replace(/\.ts$/, '')}.`;
     for (const f of fs.readdirSync(cacheDir)) {
         if (f.startsWith(prefix) && f !== keepName) {
             try { fs.unlinkSync(path.join(cacheDir, f)); } catch (e) {}
@@ -96,9 +108,9 @@ const remuxToMp4 = (srcPath, outPath) => new Promise((resolve, reject) => {
 });
 
 // Devuelve la ruta de un MP4 listo para servir (desde caché o recién remuxeado).
-const getPlayableMp4 = async (base, srcPath, stat) => {
+const getPlayableMp4 = async (day, base, srcPath, stat) => {
     ensureCacheDir();
-    const outName = cacheNameFor(base, stat);
+    const outName = cacheNameFor(day, base, stat);
     const outPath = path.join(cacheDir, outName);
 
     if (fs.existsSync(outPath)) return outPath;
@@ -107,7 +119,7 @@ const getPlayableMp4 = async (base, srcPath, stat) => {
 
     const job = (async () => {
         await remuxToMp4(srcPath, outPath);
-        pruneOldSnapshots(base, outName);
+        pruneOldSnapshots(day, base, outName);
         enforceCacheCap();
         return outPath;
     })().finally(() => inFlight.delete(outName));
@@ -116,28 +128,59 @@ const getPlayableMp4 = async (base, srcPath, stat) => {
     return job;
 };
 
-// ── Listado ───────────────────────────────────────────────────────────────────
-router.get('/', async (req, res) => {
+// Lista de carpetas de día disponibles, ordenadas de más reciente a más antigua.
+const listDayDirs = () => {
+    if (!fs.existsSync(recordingsDir)) return [];
+    return fs.readdirSync(recordingsDir, { withFileTypes: true })
+        .filter(d => d.isDirectory() && DAY_RE.test(d.name))
+        .map(d => d.name)
+        .sort()
+        .reverse();
+};
+
+// ── Listado de días ───────────────────────────────────────────────────────────
+// Liviano: solo hace un `ls` de recordingsDir y cuenta archivos por carpeta,
+// sin leer contenido ni probar duración.
+router.get('/days', (req, res) => {
     try {
-        if (!fs.existsSync(recordingsDir)) {
-            return res.json({ ok: true, recordings: [] });
-        }
+        const days = listDayDirs()
+            .map((day) => {
+                const dayDir = path.join(recordingsDir, day);
+                const files = fs.readdirSync(dayDir).filter(f => f.endsWith('.ts'));
+                const totalSize = files.reduce((sum, f) => sum + fs.statSync(path.join(dayDir, f)).size, 0);
+                return {
+                    day,
+                    count: files.length,
+                    totalSizeFormatted: formatSize(totalSize),
+                };
+            })
+            // Carpetas pre-creadas (hoy/mañana) que aún no tienen grabaciones no se listan.
+            .filter(d => d.count > 0);
+        res.json({ ok: true, days });
+    } catch (err) {
+        res.status(500).json({ ok: false, error: err.message });
+    }
+});
 
-        const names = fs.readdirSync(recordingsDir).filter(f => f.endsWith('.ts'));
+// ── Listado de videos de un día ───────────────────────────────────────────────
+// También liviano: sin ffprobe, solo fs.stat. La duración se conoce al reproducir.
+router.get('/days/:day', (req, res) => {
+    const dayDir = safeDayDir(req.params.day);
+    if (!dayDir) return res.status(400).json({ ok: false, error: 'Invalid day' });
+    if (!fs.existsSync(dayDir)) return res.status(404).json({ ok: false, error: 'Day not found' });
 
-        const recordings = await Promise.all(names.map(async (f) => {
-            const filePath = path.join(recordingsDir, f);
-            const stat = fs.statSync(filePath);
-            const durationSecs = await probeDuration(filePath);
+    try {
+        const names = fs.readdirSync(dayDir).filter(f => FILE_RE.test(f));
+        const recordings = names.map((f) => {
+            const stat = fs.statSync(path.join(dayDir, f));
             return {
                 name: f,
+                day: req.params.day,
                 size: stat.size,
                 sizeFormatted: formatSize(stat.size),
-                duration: formatDuration(durationSecs),
                 createdAt: stat.birthtime.toISOString(),
             };
-        }));
-
+        });
         recordings.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
         res.json({ ok: true, recordings });
     } catch (err) {
@@ -145,30 +188,33 @@ router.get('/', async (req, res) => {
     }
 });
 
-// Grabación en curso (la más reciente).
+// Grabación en curso (la más reciente, buscada en el día más reciente con archivos).
 router.get('/current', (req, res) => {
     try {
-        if (!fs.existsSync(recordingsDir)) return res.json({ ok: true, current: null });
-        const names = fs.readdirSync(recordingsDir).filter(f => f.endsWith('.ts'));
-        if (names.length === 0) return res.json({ ok: true, current: null });
-        const newest = names
-            .map(f => ({ f, mtime: fs.statSync(path.join(recordingsDir, f)).mtimeMs }))
-            .sort((a, b) => b.mtime - a.mtime)[0].f;
-        res.json({ ok: true, current: newest });
+        for (const day of listDayDirs()) {
+            const dayDir = path.join(recordingsDir, day);
+            const names = fs.readdirSync(dayDir).filter(f => FILE_RE.test(f));
+            if (names.length === 0) continue;
+            const newest = names
+                .map(f => ({ f, mtime: fs.statSync(path.join(dayDir, f)).mtimeMs }))
+                .sort((a, b) => b.mtime - a.mtime)[0].f;
+            return res.json({ ok: true, current: { day, name: newest } });
+        }
+        res.json({ ok: true, current: null });
     } catch (err) {
         res.status(500).json({ ok: false, error: err.message });
     }
 });
 
 // Reproducción VOD: remuxea a MP4 (con caché) y lo sirve con soporte de Range/seek.
-router.get('/:filename/stream', async (req, res) => {
-    const srcPath = safeFilePath(req.params.filename);
+router.get('/:day/:filename/stream', async (req, res) => {
+    const srcPath = safeFilePath(req.params.day, req.params.filename);
     if (!srcPath) return res.status(400).json({ ok: false, error: 'Invalid filename' });
     if (!fs.existsSync(srcPath)) return res.status(404).json({ ok: false, error: 'File not found' });
 
     try {
         const stat = fs.statSync(srcPath);
-        const mp4Path = await getPlayableMp4(path.basename(srcPath), srcPath, stat);
+        const mp4Path = await getPlayableMp4(req.params.day, path.basename(srcPath), srcPath, stat);
         // dotfiles: 'allow' porque el caché vive en ".cache" (send bloquea dotfiles por defecto).
         // res.sendFile maneja Range automáticamente → seek nativo.
         res.sendFile(mp4Path, { dotfiles: 'allow' });
@@ -177,21 +223,31 @@ router.get('/:filename/stream', async (req, res) => {
     }
 });
 
-router.get('/:filename', (req, res) => {
-    const filePath = safeFilePath(req.params.filename);
+// Metadata puntual de un video (duración vía ffprobe), pedida solo al abrir el reproductor.
+router.get('/:day/:filename/info', async (req, res) => {
+    const filePath = safeFilePath(req.params.day, req.params.filename);
     if (!filePath) return res.status(400).json({ ok: false, error: 'Invalid filename' });
     if (!fs.existsSync(filePath)) return res.status(404).json({ ok: false, error: 'File not found' });
-    res.download(filePath, path.basename(filePath));
+
+    const durationSecs = await probeDuration(filePath);
+    res.json({ ok: true, duration: formatDuration(durationSecs) });
 });
 
-router.delete('/:filename', (req, res) => {
-    const filePath = safeFilePath(req.params.filename);
+router.get('/:day/:filename', (req, res) => {
+    const filePath = safeFilePath(req.params.day, req.params.filename);
+    if (!filePath) return res.status(400).json({ ok: false, error: 'Invalid filename' });
+    if (!fs.existsSync(filePath)) return res.status(404).json({ ok: false, error: 'File not found' });
+    res.download(filePath, `${req.params.day}_${path.basename(filePath)}`);
+});
+
+router.delete('/:day/:filename', (req, res) => {
+    const filePath = safeFilePath(req.params.day, req.params.filename);
     if (!filePath) return res.status(400).json({ ok: false, error: 'Invalid filename' });
     if (!fs.existsSync(filePath)) return res.status(404).json({ ok: false, error: 'File not found' });
     try {
         fs.unlinkSync(filePath);
         // Borra también los MP4 cacheados de esta grabación.
-        if (fs.existsSync(cacheDir)) pruneOldSnapshots(path.basename(filePath), null);
+        pruneOldSnapshots(req.params.day, path.basename(filePath), null);
         res.json({ ok: true });
     } catch (err) {
         res.status(500).json({ ok: false, error: err.message });

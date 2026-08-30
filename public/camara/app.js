@@ -3,6 +3,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     const delayBadge = document.getElementById('delay-badge');
     const usersCount = document.getElementById('users-count');
     const usersDropdown = document.getElementById('users-dropdown');
+    const recordingBadge = document.getElementById('recording-badge');
+    const storageBadge = document.getElementById('storage-badge');
+    const overlayRecording = document.getElementById('overlay-recording');
+    const overlayStorage = document.getElementById('overlay-storage');
 
     // ── Operator name ─────────────────────────────────────────────────────────
     const userName = prompt("Para acceder al monitor, ingresa tu nombre de operador:", "Invitado") || "Anónimo";
@@ -72,6 +76,23 @@ document.addEventListener("DOMContentLoaded", async () => {
                 networkPing = (Date.now() - data.clientTime) / 2;
             } else if (data.type === 'server_fatal_error') {
                 triggerFatalError(data.message);
+            } else if (data.type === 'recording_status') {
+                const recording = data.recording;
+                const text = recording ? '● Grabando' : '● Sin grabar';
+                const cls = recording ? 'status-ok' : 'status-bad';
+                recordingBadge.textContent = text;
+                recordingBadge.className = `badge ${cls}`;
+                overlayRecording.textContent = text;
+                overlayRecording.className = `system-overlay-item ${cls}`;
+            } else if (data.type === 'storage_status') {
+                const freeGB = (data.free / 1e9).toFixed(1);
+                const totalGB = (data.total / 1e9).toFixed(1);
+                const text = `${freeGB} GB / ${totalGB} GB`;
+                const cls = data.low ? 'status-low' : 'status-ok';
+                storageBadge.textContent = text;
+                storageBadge.className = `badge ${cls}`;
+                overlayStorage.textContent = text;
+                overlayStorage.className = `system-overlay-item ${cls}`;
             }
         };
     };
@@ -734,7 +755,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
     });
 
-    // ── Recordings modal ──────────────────────────────────────────────────────
+    // ── Recordings modal (navegación por día → videos) ───────────────────────
     const recordingsModal     = document.getElementById('recordings-modal');
     const recordingsLoading   = document.getElementById('recordings-loading');
     const recordingsBody      = document.getElementById('recordings-body');
@@ -742,83 +763,132 @@ document.addEventListener("DOMContentLoaded", async () => {
     const recordingsEmpty     = document.getElementById('recordings-empty');
     const recordingsError     = document.getElementById('recordings-error');
     const recordingsErrMsg    = document.getElementById('recordings-error-msg');
+    const recordingsTitle     = document.getElementById('recordings-title');
+    const btnRecordingsBack   = document.getElementById('recordings-back');
     const btnOpenRecordings   = document.getElementById('btn-recordings');
     const btnCloseRecordings  = document.getElementById('recordings-modal-close');
 
-    const parseRecordingName = (filename) => {
-        const m = filename.match(/camara_(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})\.ts/);
-        if (!m) return filename;
-        return `${m[1]}  ${m[2].replace(/-/g, ':')}`;
-    };
+    let currentDay = null; // null = viendo lista de días
 
-    const loadRecordings = async () => {
+    const formatDayLabel = (day) => {
+        const [y, m, d] = day.split('-');
+        return `${d}/${m}/${y}`;
+    };
+    const formatTimeLabel = (filename) => filename.replace('.ts', '').replace(/-/g, ':');
+
+    const setLoading = () => {
         recordingsLoading.style.display = 'flex';
         recordingsBody.style.display    = 'none';
         recordingsEmpty.style.display   = 'none';
         recordingsError.style.display   = 'none';
+    };
+
+    const showError = (message) => {
+        recordingsLoading.style.display = 'none';
+        recordingsErrMsg.textContent    = message;
+        recordingsError.style.display   = 'flex';
+    };
+
+    // ── Nivel 1: lista de días (liviano, solo un ls) ──────────────────────────
+    const loadDays = async () => {
+        currentDay = null;
+        recordingsTitle.textContent = 'Grabaciones';
+        btnRecordingsBack.style.display = 'none';
+        setLoading();
         try {
-            const resp = await fetch('/api/recordings');
+            const resp = await fetch('/api/recordings/days');
+            const json = await resp.json();
+            if (!json.ok) throw new Error(json.error);
+            recordingsLoading.style.display = 'none';
+            if (json.days.length === 0) {
+                recordingsEmpty.style.display = 'flex';
+                return;
+            }
+            recordingsList.innerHTML = '';
+            json.days.forEach((d) => {
+                const item = document.createElement('div');
+                item.className = 'recording-item';
+                item.innerHTML = `
+                    <div class="recording-info">
+                        <span class="recording-name">${formatDayLabel(d.day)}</span>
+                        <span class="recording-meta">${d.count} video${d.count === 1 ? '' : 's'} · ${d.totalSizeFormatted}</span>
+                    </div>`;
+                item.addEventListener('click', () => loadDayFiles(d.day));
+                recordingsList.appendChild(item);
+            });
+            recordingsBody.style.display = 'block';
+        } catch (err) {
+            showError(err.message);
+        }
+    };
+
+    // ── Nivel 2: videos de un día (también liviano: sin ffprobe) ──────────────
+    const loadDayFiles = async (day) => {
+        currentDay = day;
+        recordingsTitle.textContent = formatDayLabel(day);
+        btnRecordingsBack.style.display = 'flex';
+        setLoading();
+        try {
+            const resp = await fetch(`/api/recordings/days/${encodeURIComponent(day)}`);
             const json = await resp.json();
             if (!json.ok) throw new Error(json.error);
             recordingsLoading.style.display = 'none';
             if (json.recordings.length === 0) {
                 recordingsEmpty.style.display = 'flex';
-            } else {
-                recordingsList.innerHTML = '';
-                json.recordings.forEach(rec => {
-                    const item = document.createElement('div');
-                    item.className = 'recording-item';
-                    item.innerHTML = `
-                        <div class="recording-info">
-                            <span class="recording-name">${parseRecordingName(rec.name)}</span>
-                            <span class="recording-meta">
-                                ${rec.duration ? `<span class="rec-duration">${rec.duration}</span>` : ''}
-                                ${rec.sizeFormatted}
-                            </span>
-                        </div>
-                        <div class="recording-actions">
-                            <a href="/camara/vod/?file=${encodeURIComponent(rec.name)}" target="_blank" rel="noopener" class="rec-btn rec-play" title="Ver">
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                            </a>
-                            <a href="/api/recordings/${encodeURIComponent(rec.name)}" download="${rec.name}" class="rec-btn rec-download" title="Descargar">
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                            </a>
-                            <button class="rec-btn rec-delete" data-name="${rec.name}" title="Eliminar">
-                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-                            </button>
-                        </div>`;
-                    item.querySelector('.rec-delete').addEventListener('click', async (e) => {
-                        const name = e.currentTarget.dataset.name;
-                        if (!confirm(`¿Eliminar ${parseRecordingName(name)}?`)) return;
-                        try {
-                            const r = await fetch(`/api/recordings/${encodeURIComponent(name)}`, { method: 'DELETE' });
-                            const j = await r.json();
-                            if (!j.ok) throw new Error(j.error);
-                            item.remove();
-                            if (recordingsList.children.length === 0) {
-                                recordingsBody.style.display  = 'none';
-                                recordingsEmpty.style.display = 'flex';
-                            }
-                        } catch (err) {
-                            alert(`Error al eliminar: ${err.message}`);
-                        }
-                    });
-                    recordingsList.appendChild(item);
-                });
-                recordingsBody.style.display = 'block';
+                return;
             }
+            recordingsList.innerHTML = '';
+            json.recordings.forEach(rec => {
+                const item = document.createElement('div');
+                item.className = 'recording-item';
+                item.innerHTML = `
+                    <div class="recording-info">
+                        <span class="recording-name">${formatTimeLabel(rec.name)}</span>
+                        <span class="recording-meta">${rec.sizeFormatted}</span>
+                    </div>
+                    <div class="recording-actions">
+                        <a href="/camara/vod/?day=${encodeURIComponent(day)}&file=${encodeURIComponent(rec.name)}" target="_blank" rel="noopener" class="rec-btn rec-play" title="Ver">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                        </a>
+                        <a href="/api/recordings/${encodeURIComponent(day)}/${encodeURIComponent(rec.name)}" download class="rec-btn rec-download" title="Descargar">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        </a>
+                        <button class="rec-btn rec-delete" title="Eliminar">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                        </button>
+                    </div>`;
+                item.querySelector('.rec-delete').addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    if (!confirm(`¿Eliminar la grabación de las ${formatTimeLabel(rec.name)}?`)) return;
+                    try {
+                        const r = await fetch(`/api/recordings/${encodeURIComponent(day)}/${encodeURIComponent(rec.name)}`, { method: 'DELETE' });
+                        const j = await r.json();
+                        if (!j.ok) throw new Error(j.error);
+                        item.remove();
+                        if (recordingsList.children.length === 0) {
+                            recordingsBody.style.display  = 'none';
+                            recordingsEmpty.style.display = 'flex';
+                        }
+                    } catch (err) {
+                        alert(`Error al eliminar: ${err.message}`);
+                    }
+                });
+                item.querySelector('.rec-play').addEventListener('click', (e) => e.stopPropagation());
+                item.querySelector('.rec-download').addEventListener('click', (e) => e.stopPropagation());
+                recordingsList.appendChild(item);
+            });
+            recordingsBody.style.display = 'block';
         } catch (err) {
-            recordingsLoading.style.display = 'none';
-            recordingsErrMsg.textContent    = err.message;
-            recordingsError.style.display   = 'flex';
+            showError(err.message);
         }
     };
 
-    const openRecordingsModal  = () => { recordingsModal.style.display = 'flex'; loadRecordings(); };
+    const openRecordingsModal  = () => { recordingsModal.style.display = 'flex'; loadDays(); };
     const closeRecordingsModal = () => { recordingsModal.style.display = 'none'; };
 
     btnOpenRecordings.addEventListener('click', openRecordingsModal);
     btnCloseRecordings.addEventListener('click', closeRecordingsModal);
+    btnRecordingsBack.addEventListener('click', loadDays);
     recordingsModal.addEventListener('click', (e) => { if (e.target === recordingsModal) closeRecordingsModal(); });
 
     // ── Botón VOD de la grabación actual ──────────────────────────────────────
@@ -832,7 +902,8 @@ document.addEventListener("DOMContentLoaded", async () => {
                     showToast('Sin grabaciones', 'Aún no hay una grabación disponible.', 'toast-generic');
                     return;
                 }
-                window.open(`/camara/vod/?file=${encodeURIComponent(json.current)}`, '_blank', 'noopener');
+                const { day, name } = json.current;
+                window.open(`/camara/vod/?day=${encodeURIComponent(day)}&file=${encodeURIComponent(name)}`, '_blank', 'noopener');
             } catch (err) {
                 showToast('Error', err.message, 'toast-generic');
             }

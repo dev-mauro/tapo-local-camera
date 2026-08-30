@@ -22,7 +22,15 @@
         }
 
         .vod-sidebar { padding: 12px; min-height: 0; overflow-y: auto; }
-        .vod-sidebar h2 { font-size: 0.95rem; margin: 4px 8px 12px; opacity: 0.8; }
+        .vod-sidebar h2 { font-size: 0.95rem; margin: 0; opacity: 0.8; }
+        .vod-sidebar-header { display: flex; align-items: center; gap: 8px; margin: 4px 8px 12px; }
+        .vod-back-btn {
+            background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 8px; width: 26px; height: 26px; flex-shrink: 0;
+            display: flex; align-items: center; justify-content: center;
+            color: inherit; cursor: pointer;
+        }
+        .vod-back-btn:hover { background: rgba(255,255,255,0.16); }
 
         .vod-player-panel { padding: 16px; display: flex; flex-direction: column; gap: 14px; min-height: 0; }
         .vod-video-wrap {
@@ -113,7 +121,16 @@
 
         <main class="vod-layout">
             <aside class="vod-sidebar glass-panel">
-                <h2>Todas las grabaciones</h2>
+                <div class="vod-sidebar-header">
+                    <button id="vod-back-to-days" class="vod-back-btn" style="display:none;" title="Volver a los días">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                            stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="19" y1="12" x2="5" y2="12"/>
+                            <polyline points="12 19 5 12 12 5"/>
+                        </svg>
+                    </button>
+                    <h2 id="vod-list-title">Días con grabaciones</h2>
+                </div>
                 <div id="vod-list"></div>
             </aside>
 
@@ -137,6 +154,7 @@
                         <button class="speed-btn" data-rate="8">x8</button>
                         <button class="speed-btn" data-rate="16">x16</button>
                         <button class="speed-btn" data-rate="32">x32</button>
+                        <button class="speed-btn" data-rate="64">x64</button>
                     </div>
                 </div>
             </section>

@@ -2,6 +2,7 @@ const WebSocket = require('ws');
 const ptz = require('../ptz');
 const cameraEvents = require('../events');
 const config = require('../../config');
+const logger = require('../../core/logger');
 
 class ControlSocket {
     constructor() {
@@ -46,19 +47,22 @@ class ControlSocket {
                     }
 
                 } catch (e) {
-                    console.error("Error parsing control message", e);
+                    logger.appError('Control', `Error parsing control message: ${e.message}`);
                 }
             });
 
             ws.on('close', () => {
+                const name = this.clients.get(socketId)?.name || socketId;
                 this.clients.delete(socketId);
+                logger.app('Control', `Client disconnected: ${name}`);
                 this.broadcastUsers();
             });
 
+            logger.app('Control', `Client connected: ${socketId}`);
             this.broadcastUsers();
         });
 
-        console.log("Control socket initialized on path: /control");
+        logger.system('Control', 'Control socket initialized on path: /control');
     }
 
     /**

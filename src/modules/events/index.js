@@ -1,3 +1,6 @@
+const logger = require('../../core/logger');
+const config = require('../../config');
+
 /**
  * ONVIF Events module — subscribes to camera events via Pull-Point
  * and broadcasts relevant alerts to connected WebSocket clients.
@@ -8,13 +11,15 @@ class CameraEvents {
         this.ready = false;
         this.broadcastFn = null;
 
-        // Per-type debounce state
+        // Per-type debounce state. `lastFiredAt` implements a cooldown so that
+        // one subject flickering in/out of frame (e.g. a person walking by,
+        // which can cause several start/stop cycles) doesn't spam alerts.
         this._states = {
-            motion: { last: false, timer: null },
-            people: { last: false, timer: null },
-            tamper: { last: false, timer: null },
-            line:   { last: false, timer: null },
-            field:  { last: false, timer: null },
+            motion: { last: false, timer: null, lastFiredAt: 0 },
+            people: { last: false, timer: null, lastFiredAt: 0 },
+            tamper: { last: false, timer: null, lastFiredAt: 0 },
+            line:   { last: false, timer: null, lastFiredAt: 0 },
+            field:  { last: false, timer: null, lastFiredAt: 0 },
         };
     }
 
@@ -25,7 +30,7 @@ class CameraEvents {
     attachCam(cam) {
         this.cam = cam;
         this.ready = true;
-        console.log('[Events] Starting ONVIF Pull-Point subscription...');
+        logger.system('Events', 'Starting ONVIF Pull-Point subscription...');
 
         cam.on('event', (message) => this._handleEvent(message));
 
@@ -33,7 +38,7 @@ class CameraEvents {
             const msg = err.message || String(err);
             // 'socket hang up' is normal for long-polling with no events
             if (msg.includes('socket hang up')) return;
-            console.error('[Events] Pull-Point error:', msg);
+            logger.systemError('Events', `Pull-Point error: ${msg}`);
         });
     }
 
@@ -69,10 +74,10 @@ class CameraEvents {
                 const val = getBool('IsInside') ?? getBool('IsField');
                 this._dispatch('field', val !== null ? val : true, topic);
             } else {
-                console.log(`[Events] Unhandled topic: ${topic}`);
+                logger.system('Events', `Unhandled topic: ${topic}`);
             }
         } catch (err) {
-            console.error('[Events] Error parsing event message:', err.message);
+            logger.systemError('Events', `Error parsing event message: ${err.message}`);
         }
     }
 
@@ -91,16 +96,24 @@ class CameraEvents {
 
         if (isActive) {
             const def = EVENT_DEFS[type];
-            console.log(`[Events] 🚨 ${def.label}`);
-            this._broadcast({
-                type:      'camera_event',
-                event:     def.event,
-                label:     def.label,
-                topic,
-                timestamp: Date.now(),
-            });
+            const now = Date.now();
+            const sinceLastFired = now - state.lastFiredAt;
+
+            if (sinceLastFired < config.EVENT_ALERT_COOLDOWN_MS) {
+                logger.app('Events', `🔇 ${def.label} (suprimido, en cooldown por ${config.EVENT_ALERT_COOLDOWN_MS - sinceLastFired}ms más)`);
+            } else {
+                state.lastFiredAt = now;
+                logger.app('Events', `🚨 ${def.label}`);
+                this._broadcast({
+                    type:      'camera_event',
+                    event:     def.event,
+                    label:     def.label,
+                    topic,
+                    timestamp: now,
+                });
+            }
         } else {
-            console.log(`[Events] ✅ ${type} CLEARED (Silent)`);
+            logger.app('Events', `✅ ${type} CLEARED (Silent)`);
         }
 
         // Auto-reset after 30s silence (some cameras don't send a cleared event)
